@@ -1,0 +1,43 @@
+Import guilintkit.RuleContext
+Import layoutkit.LayoutDocument
+Import layoutkit.LayoutRelations
+
+Private Function Distances(value As JSONItem) As Array Of Integer
+    Dim values As Array Of Integer = []
+    For i As Integer = 0 To value.Count() - 1
+        Dim amount As Integer = Math.Round(value.ValueAt(i).AsNumber().Or(0.0))
+        values.Append(amount)
+    Next
+    Return values
+End Function
+
+''' Shared measurements drive designer snapping and diagnostic near misses.
+Public Class GuiMeasurementRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["GUI102", "GUI103", "GUI104", "GUI105"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        Dim tolerance As Integer = Math.Round(c.Profile.Value("snapTolerance").AsNumber().Or(c.Profile.Value("alignmentTolerance").AsNumber().Or(3.0)))
+        Dim centerTolerance As Integer = Math.Round(c.Profile.Value("centerTolerance").AsNumber().Or(3.0))
+        Dim measured As JSONItem = LayoutRelations.NearMisses(c.Document, tolerance, Distances(c.Profile.Value("margins")), Distances(c.Profile.Value("spacing")), centerTolerance)
+        For i As Integer = 0 To measured.Count() - 1
+            Dim item As JSONItem = measured.ValueAt(i)
+            Dim node As LayoutNode = c.Document.FindNode(item.Value("nodeId").AsString().Or(""))
+            If node = Nil Then Continue For
+            If c.Hidden(node) Then Continue For
+            Dim kind As String = item.Value("kind").AsString().Or("")
+            Dim rule As String = "GUI102"
+            If kind = "margin" Then rule = "GUI103"
+            If kind = "spacing" Or kind = "distribution" Then rule = "GUI104"
+            If kind = "center" Then rule = "GUI105"
+            Dim message As String = "Possible " + kind + " near miss on " + item.Value("axis").AsString().Or("") + ": "
+            message += item.Value("actual").ToString() + " versus " + item.Value("expected").ToString() + "."
+            Dim before As Integer = c.Findings.Count()
+            Dim suppressed As Integer = c.Suppressed.Count()
+            c.Emit(rule, node, "info", message, "shared LayoutRelations measurement; project profile guidance, intentional optical offsets are possible")
+            If c.Findings.Count() > before Then c.Findings.ValueAt(before).Value("measurement") = item
+            If c.Suppressed.Count() > suppressed Then c.Suppressed.ValueAt(suppressed).Value("measurement") = item
+        Next
+    End Sub
+End Class

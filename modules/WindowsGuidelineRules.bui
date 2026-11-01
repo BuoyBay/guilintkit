@@ -1,0 +1,52 @@
+Import guilintkit.RuleContext
+Import layoutkit.LayoutDocument
+
+Private Function WGProperty(node As LayoutNode, name As String) As String
+    For Each item As LayoutProperty In node.Properties
+        If String.Compare(item.Name, name, False) = 0 Then Return String.Trim(item.RawValue)
+    Next
+    Return ""
+End Function
+
+Private Function WGFixedColor(raw As String) As Boolean
+    Return String.StartsWith(raw, "Color.RGB(", False) Or String.StartsWith(raw, "Color.RGBA(", False) Or String.StartsWith(raw, "Color.FromHex(", False)
+End Function
+
+''' Windows-only review rules. These do not claim conformance from one snapshot.
+''' Provenance and unimplemented checks live in research/windows-guidelines.json.
+Public Class GuiWindowsGuidelineRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["WIN001", "WIN002", "WIN003"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        If c.Platform <> "windows" Then Exit Sub
+        For Each node As LayoutNode In c.Document.Nodes
+            If c.Hidden(node) Then Continue For
+            Dim textColor As String = WGProperty(node, "TextColor")
+            Dim background As String = WGProperty(node, "BackgroundColor")
+            If WGFixedColor(textColor) Or WGFixedColor(background) Then
+                c.Emit("WIN001", node, "info", "Fixed UI color declared: review foreground/background pairing and Windows contrast themes.", "Microsoft recommends system/theme colors; data visualization and a deliberate high-contrast override may justify fixed colors. https://learn.microsoft.com/en-us/windows/win32/uxguide/vis-color")
+                c.Unverified("WIN001", node, "Source color syntax cannot prove legibility or contrast-theme behaviour; capture and inspect the intended theme matrix")
+            End If
+            If String.Compare(node.TypeName, "Label", False) = 0 And String.Compare(WGProperty(node, "Focusable"), "True", False) = 0 Then
+                c.Emit("WIN002", node, "info", "Static Label explicitly joins Tab navigation; review whether it needs an interaction or should leave the tab sequence.", "Windows keyboard guidance excludes noninteractive labels from tab stops; an intentionally interactive custom presentation is an exception. https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard")
+            End If
+        Next
+        If c.Preview = Nil Then Exit Sub
+        Dim rootName As String = c.Preview.Value("source").Value("root").AsString().Or("")
+        For Each root As LayoutNode In c.Document.Nodes
+            If root.ParentId <> "" Or root.Name <> rootName Then Continue For
+            Dim menus As JSONItem = c.Preview.Value("layout").Value("menus")
+            If Not menus.Value("attached").AsBoolean().Or(False) Then Continue For
+            Dim items As JSONItem = menus.Value("items")
+            For i As Integer = 0 To items.Count() - 1
+                Dim item As JSONItem = items.ValueAt(i)
+                Dim shortcut As String = item.Value("shortcut").AsString().Or("")
+                If String.Contains(shortcut, "Cmd+", False) Or String.Contains(shortcut, "Command+", False) Then
+                    c.Emit("WIN003", root, "info", "Observed Windows menu shortcut uses a macOS Command modifier: " + shortcut + ". Review platform mapping for command " + item.Value("tag").AsString().Or("(untagged)") + ".", "Windows command shortcuts conventionally use Ctrl/function keys; this string observation does not test dispatch. https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard")
+                End If
+            Next
+        Next
+    End Sub
+End Class

@@ -1,0 +1,111 @@
+Import layoutkit.LayoutDocument
+Import guilintkit.RuleContext
+
+Private Function OverlapSame(a As String, b As String) As Boolean
+    Return String.Compare(a, b, False) = 0
+End Function
+
+' Containers and potential decorative surfaces have intentional layered content.
+Private Function OverlapContainer(kind As String) As Boolean
+    For Each name As String In ["Window", "View", "Canvas", "GroupBox", "TabView", "PagePanel", "StackView", "Splitter", "RadioGroup", "ImageView"]
+        If OverlapSame(kind, name) Then Return True
+    Next
+    Return False
+End Function
+
+Private Function OverlapLeaf(kind As String) As Boolean
+    For Each name As String In ["Label", "Button", "BevelButton", "TextField", "TextArea", "Checkbox", "ComboBox", "Slider", "Stepper", "SearchField", "DateTimePicker", "ListBox", "ProgressBar", "DisclosureTriangle"]
+        If OverlapSame(kind, name) Then Return True
+    Next
+    Return False
+End Function
+
+Private Function OverlapHasPeer(c As GuiLintContext, node As LayoutNode) As Boolean
+    For Each other As LayoutNode In c.Document.Nodes
+        If other.Id = node.Id Or other.ParentId <> node.ParentId Then Continue For
+        If c.Hidden(other) Or OverlapContainer(other.TypeName) Then Continue For
+        Return True
+    Next
+    Return False
+End Function
+
+Private Function OverlapGeometry(node As LayoutNode) As Boolean
+    If Not node.Editable Or Not node.HasLiteralFrame Then Return False
+    If node.Width <= 0 Or node.Height <= 0 Then Return False
+    Return node.Width <= 16777216 And node.Height <= 16777216 And node.X >= -16777216 And node.X <= 16777216 And node.Y >= -16777216 And node.Y <= 16777216
+End Function
+
+Private Function OverlapReason(c As GuiLintContext, node As LayoutNode) As String
+    If Not OverlapLeaf(node.TypeName) Then Return "Custom control footprint and layering are not statically known"
+    If Not OverlapGeometry(node) Then Return "Computed, constrained, read-only or unsupported frame prevents sibling overlap measurement"
+    Dim current As LayoutNode = node
+    While current <> Nil
+        For Each prop As LayoutProperty In current.Properties
+            If OverlapSame(prop.Name, "Visible") And Not OverlapSame(prop.RawValue, "True") And Not OverlapSame(prop.RawValue, "False") Then Return "Visibility depends on an expression"
+        Next
+        If current.Id <> node.Id Then
+            If Not OverlapGeometry(current) Then Return "Parent coordinate bounds are not statically resolved"
+            If current.ParentId = "" Then
+                If OverlapSame(current.TypeName, "Window") Or OverlapSame(current.TypeName, "View") Then Return ""
+                Return "Root coordinate space is unsupported"
+            End If
+            If Not OverlapSame(current.TypeName, "View") Then Return "Container manages its own child coordinate spaces or insets"
+        End If
+        If current.ParentId = "" Then Exit While
+        current = c.Document.FindNode(current.ParentId)
+    End While
+    Return "Parent coordinate space is unavailable"
+End Function
+
+''' Preventive source heuristic, not proof of native occlusion or incorrect z-order.
+Public Class GuiOverlapRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["GUI901"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        If c.Disabled("GUI901") Then Exit Sub
+        Dim candidates As Array Of LayoutNode = []
+        For Each node As LayoutNode In c.Document.Nodes
+            If node.ParentId = "" Or c.Hidden(node) Or OverlapContainer(node.TypeName) Then Continue For
+            If Not OverlapHasPeer(c, node) Then Continue For
+            Dim reason As String = OverlapReason(c, node)
+            If reason <> "" Then
+                c.Unverified("GUI901", node, reason)
+            Else
+                candidates.Append(node)
+            End If
+        Next
+        Dim tolerance As Double = c.Profile.Value("alignmentTolerance").AsNumber().Or(3.0)
+        For i As Integer = 0 To Array.Count(candidates) - 1
+            Dim first As LayoutNode = candidates(i)
+            For j As Integer = i + 1 To Array.Count(candidates) - 1
+                Dim second As LayoutNode = candidates(j)
+                If first.ParentId <> second.ParentId Then Continue For
+                ' Promote before addition so malformed extreme integers cannot wrap.
+                Dim firstRight As Double = first.X
+                firstRight += first.Width
+                Dim secondRight As Double = second.X
+                secondRight += second.Width
+                Dim firstBottom As Double = first.Y
+                firstBottom += first.Height
+                Dim secondBottom As Double = second.Y
+                secondBottom += second.Height
+                Dim overlapWidth As Double = Math.Min(firstRight, secondRight) - Math.Max(first.X, second.X)
+                Dim overlapHeight As Double = Math.Min(firstBottom, secondBottom) - Math.Max(first.Y, second.Y)
+                If overlapWidth <= tolerance Or overlapHeight <= tolerance Then Continue For
+                Dim before As Integer = c.Findings.Count()
+                Dim waived As Integer = c.Suppressed.Count()
+                c.Emit("GUI901", first, "info", "Sibling frame overlaps " + c.ControlPath(second) + " by " + String.From(overlapWidth) + " x " + String.From(overlapHeight) + ". Review layering or duplicated positions.", "literal source frames in one plain coordinate space; native paint, z-order and intentional overlaps require review")
+                Dim finding As JSONItem = Nil
+                If c.Findings.Count() > before Then finding = c.Findings.ValueAt(before)
+                If c.Suppressed.Count() > waived Then finding = c.Suppressed.ValueAt(waived)
+                If finding <> Nil Then
+                    finding.Value("relatedControl") = c.ControlPath(second)
+                    finding.Value("overlapWidth") = overlapWidth
+                    finding.Value("overlapHeight") = overlapHeight
+                End If
+            Next
+        Next
+    End Sub
+End Class

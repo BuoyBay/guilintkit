@@ -1,0 +1,192 @@
+Import guilintkit.RuleContext
+Import layoutkit.LayoutDocument
+Import guilintkit.ControlKinds
+
+Private Function AXSame(a As String, b As String) As Boolean
+    Return String.Compare(a, b, False) = 0
+End Function
+
+Private Function AXRaw(node As LayoutNode, name As String) As String
+    For Each item As LayoutProperty In node.Properties
+        If AXSame(item.Name, name) Then Return item.RawValue
+    Next
+    Return ""
+End Function
+
+' Missing properties have their known empty-string default; expressions do not.
+Private Function AXText(raw As String) As Optional Of String
+    If raw = "" Then Return Some("")
+    Dim parsed As Optional Of JSONItem = Json.TryParse(raw)
+    If Not parsed.HasValue Then Return None
+    If Not parsed.Value.IsString() Then Return None
+    Return Some(parsed.Value.AsString().Value)
+End Function
+
+Private Function AXFlag(raw As String, fallback As Optional Of Boolean) As Optional Of Boolean
+    If raw = "" Then Return fallback
+    If AXSame(raw, "True") Then Return Some(True)
+    If AXSame(raw, "False") Then Return Some(False)
+    Return None
+End Function
+
+Private Function AXInteractive(node As LayoutNode) As Boolean
+    If GuiInteractiveType(node.TypeName) Then Return True
+    Return AXSame(AXRaw(node, "Focusable"), "True")
+End Function
+
+Private Function AXDefaultFocus(node As LayoutNode) As Optional Of Boolean
+    Return GuiDefaultFocus(node.TypeName)
+End Function
+
+Private Function AXRootMatched(c As GuiLintContext, node As LayoutNode) As Boolean
+    If c.Preview = Nil Then Return False
+    While node.ParentId <> ""
+        node = c.Document.FindNode(node.ParentId)
+    End While
+    Return AXSame(c.Preview.Value("source").Value("root").AsString().Or(""), node.Name)
+End Function
+
+' Visibility getters are local, not proof that every ancestor is shown. Override
+' source visibility independently at each uniquely observed node. Successful
+' capture proves its Window host is shown, but does not prove a hosted View is.
+Private Function AXEffectiveVisible(c As GuiLintContext, node As LayoutNode, observed As JSONItem) As Optional Of Boolean
+    Dim current As LayoutNode = node
+    While current <> Nil
+        Dim native As JSONItem = AXRuntime(c, current)
+        Dim visible As Optional Of Boolean = AXFlag(AXRaw(current, "Visible"), Some(True))
+        Dim witnessed As Boolean = False
+        If native <> Nil Then
+            If native.Value("visible").IsBoolean() Then
+                visible = Some(native.Value("visible").AsBoolean().Value)
+                witnessed = True
+            End If
+        End If
+        If current.ParentId = "" And AXSame(current.TypeName, "Window") And c.Preview <> Nil Then
+            If AXSame(c.Preview.Value("source").Value("root").AsString().Or(""), current.Name) And c.Preview.Value("status").AsString().Or("") = "passed" Then
+                visible = Some(True)
+                witnessed = True
+            End If
+        End If
+        If Not visible.HasValue Then Return None
+        If Not visible.Value Then
+            If Not witnessed And current.Id <> node.Id And observed <> Nil Then
+                If observed.Value("visible").AsBoolean().Or(False) Then Return None
+            End If
+            Return Some(False)
+        End If
+        If current.ParentId = "" Then Exit While
+        current = c.Document.FindNode(current.ParentId)
+    End While
+    Return Some(True)
+End Function
+
+Private Function AXIcon(caption As String) As Boolean
+    Return Array.Contains(["", "+", "-", "×", "…", "...", "?", "⚙", "✕"], String.Trim(caption))
+End Function
+
+Private Function AXRuntime(c As GuiLintContext, node As LayoutNode) As JSONItem
+    Return c.RuntimeControl(node)
+End Function
+
+''' Source declarations and matched native observations; no expression execution.
+Public Class GuiAccessibilityRulesV2 Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["GUI301", "GUI302", "GUI303", "GUI304", "GUI305", "GUI306"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        For Each node As LayoutNode In c.Document.Nodes
+            Dim observed As JSONItem = AXRuntime(c, node)
+            Dim interactive As Boolean = AXInteractive(node)
+            If observed <> Nil Then
+                If observed.Value("focusable").AsBoolean().Or(False) Then interactive = True
+            End If
+            If Not interactive Then Continue For
+            If observed = Nil And c.Hidden(node) And AXRootMatched(c, node) Then
+                c.Unverified("GUI301", node, "No unique runtime visibility observation can confirm this source-hidden control's current state")
+                Continue For
+            End If
+            Dim visible As Optional Of Boolean = AXEffectiveVisible(c, node, observed)
+            If Not visible.HasValue Then
+                c.Unverified("GUI301", node, "Effective visibility cannot be established through a computed or unobserved source-hidden ancestor")
+                Continue For
+            End If
+            If Not visible.Value Then Continue For
+
+            Dim explicitLabel As String = AXRaw(node, "AccessibleLabel")
+            Dim label As Optional Of String = AXText(explicitLabel)
+            Dim caption As Optional Of String = AXText(AXRaw(node, "Caption"))
+            Dim hint As Optional Of String = AXText(AXRaw(node, "AccessibleHint"))
+            Dim focus As Optional Of Boolean = AXFlag(AXRaw(node, "Focusable"), AXDefaultFocus(node))
+            Dim hidden As Optional Of Boolean = AXFlag(AXRaw(node, "AccessibleHidden"), Some(False))
+            Dim enabled As Optional Of Boolean = AXFlag(AXRaw(node, "Enabled"), Some(True))
+            Dim basis As String = "layout declarations only; constructors or code-behind may supply accessibility values"
+
+            If explicitLabel = "" Then
+                label = caption
+                If AXSame(node.TypeName, "TextField") Or AXSame(node.TypeName, "SearchField") Then label = AXText(AXRaw(node, "Placeholder"))
+            End If
+            If observed <> Nil Then
+                If observed.Value("accessibleLabel").IsString() Then
+                    label = Some(observed.Value("accessibleLabel").AsString().Value)
+                    basis = "source-matched Buoy AccessibleLabel getter; native provider label associations and screen-reader announcement are not tested"
+                Else
+                    c.Unverified("GUI301", node, "Matched preview lacks an AccessibleLabel observation")
+                End If
+                If observed.Value("accessibleHint").IsString() Then hint = Some(observed.Value("accessibleHint").AsString().Value)
+                If observed.Value("focusable").IsBoolean() Then focus = Some(observed.Value("focusable").AsBoolean().Value)
+                If observed.Value("accessibleHidden").IsBoolean() Then hidden = Some(observed.Value("accessibleHidden").AsBoolean().Value)
+                If observed.Value("enabled").IsBoolean() Then enabled = Some(observed.Value("enabled").AsBoolean().Value)
+            ElseIf c.Preview <> Nil Then
+                c.Unverified("GUI301", node, "Control has no unique observation in this selected-root preview")
+            End If
+
+            If Not hidden.HasValue Then
+                c.Unverified("GUI303", node, "AccessibleHidden depends on an expression")
+                Continue For
+            ElseIf hidden.Value Then
+                If focus.HasValue And enabled.HasValue Then
+                    If focus.Value And enabled.Value Then c.Emit("GUI303", node, "warning", "Control is hidden from accessibility but remains enabled and focusable.", basis)
+                Else
+                    c.Unverified("GUI303", node, "Hidden control's keyboard focus or enabled state is not known")
+                End If
+                Continue For
+            End If
+
+            If Not label.HasValue Then
+                c.Unverified("GUI301", node, "Accessible name depends on an expression")
+            ElseIf String.Trim(label.Value) = "" Then
+                c.Emit("GUI301", node, "warning", "No accessible name is supplied by the inspected declarations or Buoy property. Verify the native provider's label association; visual proximity or tooltip text alone is not proof.", basis)
+            End If
+
+            Dim action As Boolean = AXSame(node.TypeName, "Button") Or AXSame(node.TypeName, "BevelButton")
+            If action And caption.HasValue Then
+                If AXIcon(caption.Value) Then
+                    Dim meaningful As Boolean = False
+                    If label.HasValue Then meaningful = Not AXIcon(label.Value)
+                    If Not meaningful Then c.Emit("GUI302", node, "info", "Icon-only action needs a meaningful accessible name describing its action.", "caption/name heuristic; a literal question mark is an icon, not an unknown expression")
+                    If hint.HasValue Then
+                        If String.Trim(hint.Value) = "" Then c.Emit("GUI305", node, "info", "Consider an AccessibleHint and hover tooltip for this unexplained action; hover help does not replace its accessible name.", "hint guidance; NativeTooltip attachments in code-behind are not inspected")
+                    Else
+                        c.Unverified("GUI305", node, "Explanatory hint depends on an expression")
+                    End If
+                End If
+            End If
+
+            If focus.HasValue And enabled.HasValue Then
+                If Not focus.Value And enabled.Value Then c.Emit("GUI304", node, "info", "Interactive control opts out of Tab navigation; verify an equivalent keyboard path.", basis)
+            Else
+                c.Unverified("GUI304", node, "Keyboard focus or enabled state is not known")
+            End If
+            If observed <> Nil Then
+                If observed.Value("accessibleRole").IsNumber() And focus.Or(False) Then
+                    If observed.Value("accessibleRole").AsNumber().Value = 0 Then c.Emit("GUI306", node, "info", "Focusable native control reports an Unknown accessibility role; check custom semantics and toolkit support.", "native role observation; some Buoy controls do not yet set a non-Unknown default")
+                ElseIf Not observed.Value("accessibleRole").IsNumber() Then
+                    c.Unverified("GUI306", node, "Matched preview lacks a native role observation")
+                End If
+            Else
+                c.Unverified("GUI306", node, "No source-matched native role observation; source declarations do not prove screen-reader behaviour")
+            End If
+        Next
+    End Sub
+End Class

@@ -1,0 +1,96 @@
+Import guilintkit.RuleContext
+Import layoutkit.LayoutDocument
+
+Private Function GTKSame(a As String, b As String) As Boolean
+    Return String.Compare(a, b, False) = 0
+End Function
+
+Private Function GTKRoot(c As GuiLintContext, node As LayoutNode) As LayoutNode
+    While node.ParentId <> ""
+        node = c.Document.FindNode(node.ParentId)
+    End While
+    Return node
+End Function
+
+Private Function GTKPreviewFor(c As GuiLintContext, root As LayoutNode) As Boolean
+    If c.Preview = Nil Then Return False
+    Return GTKSame(c.Preview.Value("source").Value("root").AsString().Or(""), root.Name)
+End Function
+
+Private Function GTKStandardEdit(tag As String) As Boolean
+    Return Array.Contains(["cut", "copy", "paste", "undo", "redo", "select-all"], tag)
+End Function
+
+' The report records supplied probe evidence; initial pixels do not prove access.
+Private Sub GTKProbe(c As GuiLintContext, node As LayoutNode, kind As String, detail As String, rule As String)
+    Dim root As LayoutNode = GTKRoot(c, node)
+    Dim checked As Boolean = False
+    Dim matched As JSONItem = Nil
+    Dim count As Integer = 0
+    If GTKPreviewFor(c, root) Then
+        Dim probes As JSONItem = c.Preview.Value("interactions")
+        For i As Integer = 0 To probes.Count() - 1
+            Dim item As JSONItem = probes.ValueAt(i)
+            If item.Value("kind").AsString().Or("") <> kind Then Continue For
+            If Not GTKSame(item.Value("root").AsString().Or(root.Name), root.Name) Then Continue For
+            If item.Value("platform").AsString().Or(c.Platform) <> c.Platform Then Continue For
+            If kind = "splitter-keyboard" Then
+                Dim member As String = item.Value("member").AsString().Or("")
+                If Not c.MemberMatches(node, member) Then Continue For
+            Else
+                If item.Value("mode").AsString().Or("") <> detail Then Continue For
+            End If
+            count += 1
+            matched = item
+        Next
+    End If
+    If count = 1 Then
+        Dim status As String = matched.Value("status").AsString().Or("")
+        If status = "passed" Then checked = True
+        If status = "failed" Then
+            checked = True
+            c.Emit(rule, node, "warning", "GTK accessibility interaction failed: " + detail + ".", "source-matched native probe; GTK/GNOME guidance requires usable keyboard and accessibility modes")
+        End If
+    End If
+    If Not checked Then c.Unverified(rule, node, "No matching native probe for " + detail + "; a native widget or screenshot does not establish accessibility")
+End Sub
+
+''' GTK contracts and GNOME recommendations apply on Linux; no Libadwaita mandate.
+''' Missing probes remain unverified. These rules do not change system settings.
+Public Class GuiGtkGuidelineRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["GTK001", "GTK002", "GTK003"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        If c.Platform <> "linux" Then Exit Sub
+        For Each node As LayoutNode In c.Document.Nodes
+            If c.Hidden(node) Then Continue For
+            If GTKSame(node.TypeName, "Splitter") Then
+                GTKProbe(c, node, "splitter-keyboard", "splitter keyboard operation", "GTK002")
+            End If
+            If node.ParentId <> "" Then Continue For
+            If GTKPreviewFor(c, node) Then
+                Dim menus As JSONItem = c.Preview.Value("layout").Value("menus")
+                If menus.Value("items").IsArray() Then
+                    Dim items As JSONItem = menus.Value("items")
+                    For i As Integer = 0 To items.Count() - 1
+                        Dim item As JSONItem = items.ValueAt(i)
+                        Dim tag As String = item.Value("tag").AsString().Or("")
+                        If Not GTKStandardEdit(tag) Then Continue For
+                        Dim shortcut As String = String.LCase(String.Replace(item.Value("shortcut").AsString().Or(""), " ", "", True))
+                        If String.Contains(shortcut, "cmd+", True) Or String.Contains(shortcut, "command+", True) Or String.Contains(shortcut, "<meta>", True) Or String.Contains(shortcut, "<super>", True) Then
+                            c.Emit("GTK001", node, "info", "Standard edit command " + tag + " uses a macOS/system modifier on Linux: " + item.Value("shortcut").AsString().Or("") + ". Review the primary shortcut.", "GNOME recommends standard Ctrl-based editing shortcuts and reserves Super for the system; intentional alternate bindings can be suppressed")
+                        End If
+                    Next
+                Else
+                    c.Unverified("GTK001", node, "Native menu shortcuts were not observed")
+                End If
+            Else
+                c.Unverified("GTK001", node, "Native menu shortcuts require a matching preview")
+            End If
+            GTKProbe(c, node, "accessibility-mode", "large-text", "GTK003")
+            GTKProbe(c, node, "accessibility-mode", "high-contrast", "GTK003")
+        Next
+    End Sub
+End Class

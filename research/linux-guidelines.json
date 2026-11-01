@@ -1,0 +1,267 @@
+{
+  "schema": 1,
+  "reviewed": "2026-10-31",
+  "scope": "Linux desktop guidance is toolkit- and desktop-specific. GNOME HIG targets GTK4 and Libadwaita; Buoy uses GTK4 and does not imply Libadwaita. KDE HIG describes another design system.",
+  "platformDefinitionSource": "https://developer.gnome.org/hig/",
+  "rules": [
+    {
+      "id": "GTK001",
+      "title": "Use the Linux primary modifier for standard editing",
+      "platform": "linux",
+      "applicability": "GTK apps following GNOME shortcut conventions",
+      "sourceURL": "https://developer.gnome.org/hig/reference/keyboard.html",
+      "sourceTitle": "GNOME HIG — Standard Keyboard Shortcuts",
+      "relatedSourceURLs": [
+        "https://developer.gnome.org/hig/guidelines/keyboard.html"
+      ],
+      "guidance": "Standard editing actions use Ctrl-based shortcuts. Review copied macOS Command modifiers or system-reserved Super modifiers.",
+      "evidenceLevel": "native",
+      "automaticStatus": "implemented",
+      "implementation": "GuiGtkGuidelineRules",
+      "exceptions": [
+        "Intentional application-specific alternate bindings are advisory and suppressible.",
+        "This does not prove a command callback works or require every action to have a shortcut."
+      ]
+    },
+    {
+      "id": "GTK002",
+      "title": "Keyboard operation of splitter handles",
+      "platform": "linux",
+      "applicability": "Visible native GTK splitters",
+      "sourceURL": "https://docs.gtk.org/gtk4/class.Paned.html",
+      "sourceTitle": "GTK 4 — GtkPaned",
+      "relatedSourceURLs": [
+        "https://developer.gnome.org/hig/guidelines/keyboard.html"
+      ],
+      "guidance": "GTK exposes keyboard actions for focusing, moving, accepting and cancelling divider movement. Verify the actual Buoy control remains operable through these paths.",
+      "evidenceLevel": "interaction",
+      "automaticStatus": "implemented",
+      "implementation": "GuiGtkGuidelineRules",
+      "exceptions": [
+        "Initial geometry and native widget type do not prove keyboard access.",
+        "No probe is unverified; only a matching failed probe produces a warning."
+      ]
+    },
+    {
+      "id": "GTK003",
+      "title": "Large-text and high-contrast operation",
+      "platform": "linux",
+      "applicability": "GTK application windows",
+      "sourceURL": "https://developer.gnome.org/hig/guidelines/accessibility.html",
+      "sourceTitle": "GNOME HIG — Accessibility",
+      "relatedSourceURLs": [
+        "https://developer.gnome.org/hig/guidelines/ui-styling.html",
+        "https://develop.kde.org/hig/accessibility/"
+      ],
+      "guidance": "Exercise the interface with enlarged text and high-contrast styling. Verify readable content and usable controls rather than accepting one default-theme screenshot.",
+      "evidenceLevel": "interaction",
+      "automaticStatus": "implemented",
+      "implementation": "GuiGtkGuidelineRules",
+      "exceptions": [
+        "No theme or font setting is changed by linting.",
+        "Missing mode probes stay unverified; failed source-matched probes warn."
+      ]
+    },
+    {
+      "id": "LINUX004",
+      "title": "Descriptive accessible names",
+      "platform": "linux",
+      "applicability": "GTK standard and custom widgets",
+      "sourceURL": "https://docs.gtk.org/gtk4/section-accessibility.html",
+      "sourceTitle": "GTK 4 — Accessibility",
+      "relatedSourceURLs": [
+        "https://developer.gnome.org/hig/guidelines/accessibility.html"
+      ],
+      "guidance": "Standard widgets provide accessibility defaults; supply application-specific names when these are incomplete. Custom widgets need appropriate role, state and action exposure.",
+      "evidenceLevel": "native",
+      "automaticStatus": "covered-by-generic-rules",
+      "implementation": [
+        "GUI301",
+        "GUI302",
+        "GUI306"
+      ],
+      "exceptions": [
+        "Do not require redundant explicit names when the natural caption is meaningful.",
+        "A nonempty value is not necessarily a meaningful field label."
+      ]
+    },
+    {
+      "id": "LINUX005",
+      "title": "Real label relationships and mnemonics",
+      "platform": "linux",
+      "applicability": "GTK text labels and associated controls",
+      "sourceURL": "https://docs.gtk.org/gtk4/enum.AccessibleRelation.html",
+      "sourceTitle": "GTK 4 — GtkAccessibleRelation",
+      "relatedSourceURLs": [
+        "https://docs.gtk.org/gtk4/property.Label.mnemonic-widget.html"
+      ],
+      "guidance": "Inspect native labelled-by relationships and mnemonic targets when testing a visual label/control pair. Physical proximity alone cannot establish the association.",
+      "evidenceLevel": "native",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Requires native relation observations not present in the basic PreviewKit snapshot.",
+        "Do not set GTK-managed inverse relations directly."
+      ]
+    },
+    {
+      "id": "LINUX006",
+      "title": "Complete keyboard navigation and visible focus",
+      "platform": "linux",
+      "applicability": "GTK controls and composites",
+      "sourceURL": "https://docs.gtk.org/gtk4/input-handling.html",
+      "sourceTitle": "GTK 4 — Input and Event Handling",
+      "relatedSourceURLs": [
+        "https://develop.kde.org/hig/accessibility/"
+      ],
+      "guidance": "Verify Tab and reverse-Tab navigation, activation and visible focus across the full interface. A focusable property alone is insufficient evidence.",
+      "evidenceLevel": "interaction",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Arrow-key navigation inside composite widgets may be correct.",
+        "Read-only or decorative content need not be a Tab stop."
+      ]
+    },
+    {
+      "id": "LINUX007",
+      "title": "Context-sensitive tooltip coverage",
+      "platform": "linux",
+      "applicability": "GNOME primary-window header bars; other controls only where useful",
+      "sourceURL": "https://developer.gnome.org/hig/patterns/feedback/tooltips.html",
+      "sourceTitle": "GNOME HIG — Tooltips",
+      "relatedSourceURLs": [
+        "https://developer.gnome.org/hig/patterns/containers/header-bars.html"
+      ],
+      "guidance": "Header-bar controls should have explanatory tooltips. Elsewhere, provide them selectively and do not rely on hover text for essential instructions.",
+      "evidenceLevel": "native",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "This is not a blanket requirement for every GTK or KDE control.",
+        "NativeTooltip attachment and header-bar membership need runtime metadata.",
+        "AccessibleHint and a hover tooltip are distinct surfaces."
+      ]
+    },
+    {
+      "id": "LINUX008",
+      "title": "GNOME primary-menu conventions",
+      "platform": "linux",
+      "applicability": "Apps explicitly adopting GNOME primary-menu design",
+      "sourceURL": "https://developer.gnome.org/hig/patterns/controls/menus.html",
+      "sourceTitle": "GNOME HIG — Menus",
+      "guidance": "GNOME commonly uses primary, secondary and context menus. Primary menus include About and may include Preferences, Keyboard Shortcuts and Help. They omit Close/Quit entries.",
+      "evidenceLevel": "native",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Do not demand a Windows-style File/Edit menu bar for all Linux apps.",
+        "Conventional menu-bar applications and KDE applications use different patterns.",
+        "Localized captions and menu purpose require explicit policy."
+      ]
+    },
+    {
+      "id": "LINUX009",
+      "title": "Default action and cancellation semantics",
+      "platform": "linux",
+      "applicability": "GTK dialogs and dialog-like application windows",
+      "sourceURL": "https://docs.gtk.org/gtk4/method.Window.set_default_widget.html",
+      "sourceTitle": "GTK 4 — GtkWindow.set_default_widget",
+      "relatedSourceURLs": [
+        "https://docs.gtk.org/gtk4/signal.Dialog.close.html"
+      ],
+      "guidance": "A default widget handles Enter. Validate cancellation through actual keyboard behavior instead of the presence of a Cancel label.",
+      "evidenceLevel": "interaction",
+      "automaticStatus": "covered-by-generic-rules",
+      "implementation": [
+        "GUI501",
+        "GUI503",
+        "GUI701"
+      ],
+      "exceptions": [
+        "GtkDialog has an Escape close binding but is deprecated since GTK 4.10.",
+        "A Buoy Window is not necessarily a GtkDialog; do not assume that default binding.",
+        "Destructive actions can intentionally lack a default."
+      ]
+    },
+    {
+      "id": "LINUX010",
+      "title": "Spacing uses the selected toolkit/design system",
+      "platform": "linux",
+      "applicability": "Project-selected GTK/GNOME or KDE/Kirigami design policy",
+      "sourceURL": "https://develop.kde.org/hig/layout_and_nav/",
+      "sourceTitle": "KDE HIG — Layout and Navigation",
+      "guidance": "KDE recommends symbolic Kirigami spacing and size units. Keep platform profiles explicit; do not turn these values into universal fixed-pixel GTK rules.",
+      "evidenceLevel": "source",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Buoy uses GTK4 on Linux, not Kirigami.",
+        "Theme, font scale and toolkit units affect physical dimensions.",
+        "Use configured relational spacing; optical adjustments remain advisory."
+      ]
+    },
+    {
+      "id": "LINUX011",
+      "title": "Adaptive layout across window sizes",
+      "platform": "linux",
+      "applicability": "GNOME applications; useful broader GTK validation",
+      "sourceURL": "https://developer.gnome.org/hig/guidelines/adaptive.html",
+      "sourceTitle": "GNOME HIG — Scaling and Adaptiveness",
+      "guidance": "Test constrained and expanded window sizes while preserving usable functionality. Sidebar proportions, clipping and disrupted grouping need multiple native captures.",
+      "evidenceLevel": "interaction",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "GNOME-specific target sizes are not universal Linux requirements.",
+        "An initial source frame does not prove resize behavior."
+      ]
+    },
+    {
+      "id": "LINUX012",
+      "title": "System typography and scalable text",
+      "platform": "linux",
+      "applicability": "GTK apps following GNOME typography guidance",
+      "sourceURL": "https://developer.gnome.org/hig/guidelines/typography.html",
+      "sourceTitle": "GNOME HIG — Typography",
+      "guidance": "Prefer system-provided typography and avoid absolute font choices that defeat accessibility scaling. Validate custom typography rather than treating every explicit font as an error.",
+      "evidenceLevel": "interaction",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Branded content, editors and specialized document rendering may require custom fonts.",
+        "A fixed source size alone does not prove scaling is broken."
+      ]
+    },
+    {
+      "id": "LINUX013",
+      "title": "Orca screen-reader task audit",
+      "platform": "linux",
+      "applicability": "AT-SPI applications, including GTK and KDE",
+      "sourceURL": "https://develop.kde.org/hig/accessibility/",
+      "sourceTitle": "KDE HIG — Accessibility and Inclusiveness",
+      "relatedSourceURLs": [
+        "https://developer.gnome.org/hig/guidelines/accessibility.html"
+      ],
+      "guidance": "Perform tasks using a screen reader and keyboard; inspect whether controls are intelligible and distinguishable, and whether essential information survives without vision.",
+      "evidenceLevel": "manual",
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "An accessibility tree snapshot is necessary evidence, not proof of a successful user task.",
+        "Repeated names can be valid in distinct contextual groups."
+      ]
+    }
+  ],
+  "probeContract": {
+    "location": "preview.interactions",
+    "scope": "The parent linter validates the preview source hash. Each record may specify root and platform; wrong scopes are ignored.",
+    "splitterKeyboard": {
+      "kind": "splitter-keyboard",
+      "member": "splitterMember",
+      "status": "passed|failed|unverified",
+      "root": "RootName",
+      "platform": "linux"
+    },
+    "accessibilityMode": {
+      "kind": "accessibility-mode",
+      "mode": "large-text|high-contrast",
+      "status": "passed|failed|unverified",
+      "root": "RootName",
+      "platform": "linux"
+    },
+    "producerStatus": "The rule module consumes supplied probe evidence; it does not itself drive these interactions."
+  }
+}

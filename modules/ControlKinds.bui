@@ -1,0 +1,17 @@
+''' Known interaction capability, independent of platform focus defaults.
+''' TextArea and Stepper are documented input controls (ui/textarea.md,
+''' ui/stepper.md). Containers and output-only controls are not assumed interactive.
+Public Function GuiInteractiveType(typeName As String) As Boolean
+    For Each kind As String In ["Button", "BevelButton", "TextField", "TextArea", "Checkbox", "RadioButton", "ListBox", "ComboBox", "Slider", "Stepper", "SearchField"]
+        If String.Compare(typeName, kind, False) = 0 Then Return True
+    Next
+    Return False
+End Function
+
+''' Only defaults documented by Buoy's accessibility surface are asserted here.
+Public Function GuiDefaultFocus(typeName As String) As Optional Of Boolean
+    For Each kind As String In ["Button", "TextField", "Checkbox", "ListBox"]
+        If String.Compare(typeName, kind, False) = 0 Then Return Some(True)
+    Next
+    Return None
+End Function

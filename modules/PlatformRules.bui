@@ -1,0 +1,179 @@
+Import guilintkit.RuleContext
+Import layoutkit.LayoutDocument
+
+Private Function GP_Same(a As String, b As String) As Boolean
+    Return String.Compare(a, b, False) = 0
+End Function
+
+Private Function GP_Member(node As LayoutNode, name As String) As String
+    For Each item As LayoutProperty In node.Properties
+        If GP_Same(item.Name, name) Then Return item.RawValue
+    Next
+    Return ""
+End Function
+
+Private Function GP_PreviewFor(c As GuiLintContext, root As LayoutNode) As Boolean
+    If c.Preview = Nil Then Return False
+    Return GP_Same(c.Preview.Value("source").Value("root").AsString().Or(""), root.Name)
+End Function
+
+Private Function GP_InRoot(c As GuiLintContext, node As LayoutNode, root As LayoutNode) As Boolean
+    Return String.StartsWith(c.ControlPath(node), root.Name + ".", True)
+End Function
+
+' An incomplete accessibility tree cannot establish that a menu is absent.
+Private Function GP_FindMenuBar(tree As JSONItem, depth As Integer = 0) As JSONItem
+    If depth > 24 Or Not tree.IsObject() Then Return Nil
+    If tree.Value("AXRole").AsString().Or("") = "AXMenuBar" Then Return tree
+    Dim children As JSONItem = tree.Value("children")
+    For i As Integer = 0 To children.Count() - 1
+        Dim found As JSONItem = GP_FindMenuBar(children.ValueAt(i), depth + 1)
+        If found <> Nil Then Return found
+    Next
+    Return Nil
+End Function
+
+Private Function GP_MenuChildrenComplete(bar As JSONItem) As Boolean
+    If bar = Nil Then Return False
+    If bar.Value("truncated").AsBoolean().Or(False) Then Return False
+    If Not bar.Value("children").IsArray() Then Return False
+    Dim children As JSONItem = bar.Value("children")
+    For i As Integer = 0 To children.Count() - 1
+        Dim child As JSONItem = children.ValueAt(i)
+        If child.Value("truncated").AsBoolean().Or(False) Then Return False
+        If child.Value("AXRole").AsString().Or("") = "" Then Return False
+    Next
+    Return True
+End Function
+
+Private Sub GP_Interaction(c As GuiLintContext, root As LayoutNode, field As String, requested As String, rule As String)
+    Dim checked As Boolean = False
+    If GP_PreviewFor(c, root) Then
+        Dim interactions As JSONItem = c.Preview.Value("interactions")
+        For i As Integer = 0 To interactions.Count() - 1
+            Dim item As JSONItem = interactions.ValueAt(i)
+            If item.Value(field).AsString().Or("") <> requested Then Continue For
+            Dim evidenceRoot As String = item.Value("root").AsString().Or(root.Name)
+            Dim evidencePlatform As String = item.Value("platform").AsString().Or(c.Platform)
+            If Not GP_Same(evidenceRoot, root.Name) Or evidencePlatform <> c.Platform Then Continue For
+            Dim status As String = item.Value("status").AsString().Or("")
+            If status = "passed" Then checked = True
+            If status = "failed" Then
+                checked = True
+                c.Emit(rule, root, "warning", "Native " + field + " interaction failed: " + requested + ".", "source-matched native interaction evidence; command presence is not callback proof")
+            End If
+        Next
+    End If
+    If Not checked Then c.Unverified(rule, root, "No matching native " + field + " interaction evidence for " + requested)
+End Sub
+
+''' Platform expectations are policy-driven. A declaration never proves a key handler.
+Public Class GuiPlatformRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["GUI201", "GUI501", "GUI502", "GUI503", "GUI601", "GUI602", "GUI603", "GUI701", "GUI702"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        For Each root As LayoutNode In c.Document.Nodes
+            If root.ParentId <> "" Or Not GP_Same(root.TypeName, "Window") Or c.Hidden(root) Then Continue For
+            Dim policy As JSONItem = c.Profile.Value("windows").Value(root.Name)
+            Dim defaults As Integer = 0
+            Dim cancels As Integer = 0
+            Dim hasResizeEvidence As Boolean = False
+            Dim children As Integer = 0
+            For Each node As LayoutNode In c.Document.Nodes
+                If Not GP_InRoot(c, node, root) Or c.Hidden(node) Then Continue For
+                children += 1
+                If GP_Same(GP_Member(node, "Default"), "True") Then defaults += 1
+                If GP_Same(GP_Member(node, "Cancel"), "True") Then cancels += 1
+                If GP_Same(GP_Member(node, "LockRight"), "True") Or GP_Same(GP_Member(node, "LockBottom"), "True") Then hasResizeEvidence = True
+            Next
+            Try
+                If c.Document.Constraints(root.Id).Count() > 0 Then hasResizeEvidence = True
+            Catch e As InvalidArgumentException
+                c.Unverified("GUI201", root, "Constraint inspection is unavailable for this read-only source region")
+            End Try
+            If Not hasResizeEvidence And children > 0 And policy.Value("resizable").AsBoolean().Or(True) Then
+                c.Emit("GUI201", root, "info", "No right/bottom locks or constraints are visible. Review resize behaviour and minimum size, or declare an intentionally fixed-size policy.", "layout only; code-behind can install resizing or size limits")
+            End If
+
+            Dim dialog As Boolean = policy.Value("purpose").AsString().Or("") = "dialog"
+            Dim expectDefault As Boolean = policy.Value("defaultButton").AsBoolean().Or(dialog)
+            Dim expectCancel As Boolean = policy.Value("cancelButton").AsBoolean().Or(dialog)
+            If expectDefault And defaults = 0 Then
+                c.Emit("GUI501", root, "info", "No default action is declared for this dialog policy. Verify Return invokes the intended safe primary action.", "core Button has no documented Default property; code-behind/native adapters may implement Return")
+            End If
+            If defaults > 1 Then c.Emit("GUI502", root, "warning", "Multiple visible controls declare Default = True in one window.", "source declarations only; keyboard behaviour requires an interaction test")
+            If expectCancel And cancels = 0 Then
+                Dim guidance As String = "Verify Escape cancels."
+                If c.Platform = "macos" Then guidance += " Also review Cmd+Period."
+                c.Emit("GUI503", root, "info", "No cancel action is declared. " + guidance, "core Button has no documented Cancel property; absence of a declaration does not prove failure")
+            End If
+            If expectDefault Then GP_Interaction(c, root, "key", "return", "GUI701")
+            If expectCancel Then
+                GP_Interaction(c, root, "key", "escape", "GUI701")
+                If c.Platform = "macos" Then GP_Interaction(c, root, "key", "cmd+period", "GUI701")
+            End If
+            Me.CheckMenus(c, root, policy)
+        Next
+    End Sub
+
+    Private Sub CheckMenus(c As GuiLintContext, root As LayoutNode, policy As JSONItem)
+        Dim expected As JSONItem = policy.Value("menuCommands")
+        If expected.Count() > 0 Then
+            If Not GP_PreviewFor(c, root) Then
+                c.Unverified("GUI601", root, "Menu presence requires a source-matched native preview; code-behind and application fallback cannot be inferred")
+            Else
+                Dim menus As JSONItem = c.Preview.Value("layout").Value("menus")
+                If Not menus.IsObject() Or Not menus.Value("attached").IsBoolean() Then
+                    c.Unverified("GUI601", root, "Effective menu attachment is unobserved; on macOS an application menu bar may be inherited")
+                ElseIf Not menus.Value("attached").AsBoolean().Value Then
+                    c.Emit("GUI601", root, "warning", "Policy expects menu commands, but no effective menu bar was observed for this window.", "native preview; Windows/Linux require a window bar, macOS can inherit an observed application bar")
+                Else
+                    Dim items As JSONItem = menus.Value("items")
+                    If Not items.IsArray() Then
+                        c.Unverified("GUI602", root, "Preview has no menu item observations")
+                    Else
+                        For i As Integer = 0 To expected.Count() - 1
+                            Dim tag As String = expected.ValueAt(i).AsString().Or("")
+                            Dim found As Boolean = False
+                            For j As Integer = 0 To items.Count() - 1
+                                If items.ValueAt(j).Value("tag").AsString().Or("") = tag Then found = True
+                            Next
+                            If Not found Then c.Emit("GUI602", root, "warning", "Expected menu command tag is absent: " + tag, "explicit policy and observed first-level menu items; localized captions are not guessed")
+                        Next
+                    End If
+                End If
+            End If
+            For i As Integer = 0 To expected.Count() - 1
+                GP_Interaction(c, root, "command", expected.ValueAt(i).AsString().Or(""), "GUI702")
+            Next
+        End If
+
+        Dim nativeTitles As JSONItem = policy.Value("nativeMenuTitles")
+        If nativeTitles.Count() = 0 Then Exit Sub
+        If c.Platform <> "macos" Then
+            c.Unverified("GUI603", root, "Native menu-title inspection is currently available through the macOS accessibility adapter only")
+            Exit Sub
+        End If
+        If Not GP_PreviewFor(c, root) Then
+            c.Unverified("GUI603", root, "Native menu titles require a matching macOS accessibility observation")
+            Exit Sub
+        End If
+        Dim bar As JSONItem = GP_FindMenuBar(c.Preview.Value("nativeAccessibility"))
+        If Not GP_MenuChildrenComplete(bar) Then
+            c.Unverified("GUI603", root, "Native menu-bar children are absent, truncated or unobserved; missing menus cannot be established")
+            Exit Sub
+        End If
+        Dim children As JSONItem = bar.Value("children")
+        For i As Integer = 0 To nativeTitles.Count() - 1
+            Dim title As String = nativeTitles.ValueAt(i).AsString().Or("")
+            Dim found As Boolean = False
+            For j As Integer = 0 To children.Count() - 1
+                Dim item As JSONItem = children.ValueAt(j)
+                If item.Value("AXRole").AsString().Or("") = "AXMenuBarItem" And item.Value("AXTitle").AsString().Or("") = title Then found = True
+            Next
+            If Not found Then c.Emit("GUI603", root, "warning", "Expected native menu title is absent: " + title, "explicit localized policy and complete observed AXMenuBar children; system menus are not inferred from Buoy menu objects")
+        Next
+    End Sub
+End Class

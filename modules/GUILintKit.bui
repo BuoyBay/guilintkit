@@ -1,0 +1,196 @@
+Import layoutkit.LayoutDocument
+Import editorkit
+Import guilintkit.RuleContext
+Import crypto
+Import guilintkit.Profiles
+Import guilintkit.AccessibilityRules
+Import guilintkit.PlatformRules
+Import guilintkit.SplitterRules
+Import guilintkit.MeasurementRules
+Import guilintkit.OverlapRules
+Import guilintkit.BamaRules
+Import guilintkit.WindowsGuidelineRules
+Import guilintkit.GtkGuidelineRules
+Import guilintkit.PreviewEvidence
+
+Private Function Same(a As String, b As String) As Boolean
+    Return String.Compare(a, b, False) = 0
+End Function
+
+Private Function Member(node As LayoutNode, name As String) As String
+    For Each item As LayoutProperty In node.Properties
+        If Same(item.Name, name) Then Return item.RawValue
+    Next
+    Return ""
+End Function
+
+Private Function KnownText(raw As String) As String
+    If raw = "" Then Return ""
+    Dim parsed As Optional Of JSONItem = Json.TryParse(raw)
+    If Not parsed.HasValue Then Return "?"
+    If Not parsed.Value.IsString() Then Return "?"
+    Return parsed.Value.AsString().Value
+End Function
+
+Private Function HeightGuidance(node As LayoutNode, profile As JSONItem) As Boolean
+    If Not Same(node.TypeName, "TextField") Then Return False
+    If profile.Value("textFieldMaxHeight").AsNumber().Or(28.0) <= 0 Then Return False
+    Dim multiline As String = Member(node, "Multiline")
+    If multiline <> "" And Not Same(multiline, "False") Then Return False
+    Dim font As String = Member(node, "FontSize")
+    If font <> "" Then
+        Dim size As Result Of Double, String = Double.Parse(font)
+        If Not size.IsOk Then Return False
+        If size.Value <> 0.0 Then Return False
+    End If
+    Dim family As String = Member(node, "FontName")
+    Return family = "" Or KnownText(family) = ""
+End Function
+
+''' Explicit policy values are guidance, not universal native widget defaults.
+Public Function DefaultGuiLintProfile() As JSONItem
+    Return Json.Parse("{\"schema\":1,\"textFieldMaxHeight\":28,\"alignmentTolerance\":3,\"disabledRules\":[],\"ignore\":[],\"windows\":{}}")
+End Function
+
+Public Class GuiGeometryRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["GUI001", "GUI002", "GUI101"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        For Each node As LayoutNode In c.Document.Nodes
+            Dim style As Boolean = HeightGuidance(node, c.Profile)
+            If Not c.Literal(node) Then
+                If Not c.Hidden(node) Then
+                    c.Unverified("GUI001", node, "Computed, constrained, incomplete or unsupported frame dimensions")
+                    If node.ParentId <> "" Then c.Unverified("GUI002", node, "Computed, constrained, incomplete or unsupported frame bounds")
+                    If style Then c.Unverified("GUI101", node, "TextField height is not statically resolved")
+                End If
+                Continue For
+            End If
+            If node.Width <= 0 Or node.Height <= 0 Then c.Emit("GUI001", node, "warning", "Visible control has an empty or negative frame.", "literal frame")
+            If node.ParentId <> "" Then
+                Dim parent As LayoutNode = c.Document.FindNode(node.ParentId)
+                If c.Literal(parent) And (parent.ParentId = "" Or Same(parent.TypeName, "View")) Then
+                    Dim right As Double = node.X
+                    right += node.Width
+                    Dim bottom As Double = node.Y
+                    bottom += node.Height
+                    If node.X < 0 Or node.Y < 0 Or right > parent.Width Or bottom > parent.Height Then
+                        c.Emit("GUI002", node, "warning", "Frame extends outside its parent; review clipping and resize behaviour.", "literal frames; intentional overflow is possible")
+                    End If
+                Else
+                    c.Unverified("GUI002", node, "Parent client bounds or container insets are not statically resolved")
+                End If
+            End If
+            If style Then
+                Dim maximum As Double = c.Profile.Value("textFieldMaxHeight").AsNumber().Or(28.0)
+                If node.Height > maximum Then
+                    c.Emit("GUI101", node, "info", "Single-line TextField height " + String.From(node.Height) + " exceeds profile guidance " + String.From(maximum) + ".", "Buoy TextField documentation uses 28; this is an example, not a native preferred-size contract")
+                End If
+            End If
+        Next
+    End Sub
+End Class
+
+''' Read-only linter reusable by the CLI, IDE, and MCP hosts.
+Public Class GuiLinter
+    Private Property mRules As Array Of GuiLintRule = []
+
+    Public Sub Register(rule As GuiLintRule)
+        If rule = Nil Then Throw New InvalidArgumentException("A rule is required")
+        If Array.Count(rule.RuleIds()) = 0 Then Throw New InvalidArgumentException("A rule collection must declare at least one ID")
+        Dim localIds As Array Of String = []
+        For Each id As String In rule.RuleIds()
+            If String.Trim(id) = "" Or Array.Contains(localIds, id) Then Throw New InvalidArgumentException("Empty or duplicate GUI rule ID")
+            localIds.Append(id)
+            For Each existing As GuiLintRule In Me.mRules
+                If Array.Contains(existing.RuleIds(), id) Then Throw New InvalidArgumentException("Duplicate GUI rule: " + id)
+            Next
+        Next
+        Me.mRules.Append(rule)
+    End Sub
+
+    Public Function RegisteredRuleIds() As Array Of String
+        Dim ids As Array Of String = []
+        For Each rule As GuiLintRule In Me.mRules
+            For Each id As String In rule.RuleIds()
+                ids.Append(id)
+            Next
+        Next
+        Return ids
+    End Function
+
+    Public Sub RegisterBuiltinRules()
+        Me.Register(New GuiGeometryRules())
+        Me.Register(New GuiMeasurementRules())
+        Me.Register(New GuiOverlapRules())
+        Me.Register(New GuiAccessibilityRulesV2())
+        Me.Register(New GuiPlatformRules())
+        Me.Register(New GuiSplitterRules())
+        Me.Register(New GuiBamaRules())
+        Me.Register(New GuiWindowsGuidelineRules())
+        Me.Register(New GuiGtkGuidelineRules())
+    End Sub
+
+    Public Function Analyse(document As LayoutDocument, sourcePath As String) As JSONItem
+        Return Me.Analyse(document, sourcePath, "any", Nil, Nil)
+    End Function
+
+    Public Function Analyse(document As LayoutDocument, sourcePath As String, platform As String, profile As JSONItem, preview As JSONItem) As JSONItem
+        If document = Nil Then Throw New InvalidArgumentException("A LayoutDocument is required")
+        If profile = Nil Then profile = DefaultGuiLintProfile()
+        If preview <> Nil Then
+            ValidateGuiPreview(preview, document)
+            Dim sourceName As String = preview.Value("source").Value("layout").AsString().Or("")
+            Dim observedHash As String = preview.Value("inputs").Value(sourceName).AsString().Or("")
+            Dim expectedHash As String = Crypto.Hash(Crypto.HashAlgorithms.SHA256, Bytes.FromString(document.SourceText, Text.Encodings.UTF8)).ToHex()
+            If observedHash <> expectedHash Or preview.Value("status").AsString().Or("") <> "passed" Then Throw New InvalidArgumentException("Preview is stale, failed or lacks a matching source hash")
+            Dim backend As String = preview.Value("backend").AsString().Or("")
+            If platform = "any" Then platform = backend
+            If platform <> backend Then Throw New InvalidArgumentException("Preview platform differs from requested lint platform")
+        End If
+        profile = ResolveGuiLintProfile(profile, platform)
+        Dim registered As Array Of String = Me.RegisteredRuleIds()
+        For Each id As String In profile.Value("ruleOptions").Keys()
+            If Not Array.Contains(registered, id) Then Throw New InvalidArgumentException("Unknown GUI rule options: " + id)
+        Next
+        Dim disabled As JSONItem = profile.Value("disabledRules")
+        For i As Integer = 0 To disabled.Count() - 1
+            If Not Array.Contains(registered, disabled.ValueAt(i).AsString().Value) Then Throw New InvalidArgumentException("Unknown disabled GUI rule: " + disabled.ValueAt(i).AsString().Value)
+        Next
+        Dim ignores As JSONItem = profile.Value("ignore")
+        For i As Integer = 0 To ignores.Count() - 1
+            If Not Array.Contains(registered, ignores.ValueAt(i).Value("rule").AsString().Value) Then Throw New InvalidArgumentException("Unknown ignored GUI rule")
+        Next
+        Dim context As New GuiLintContext(document, sourcePath, platform, profile, preview)
+        If Array.Count(document.Nodes) = 0 Then
+            Dim missing As JSONItem = JSONItem.NewObject()
+            missing.Value("rule") = "source-model"
+            missing.Value("control") = ""
+            missing.Value("status") = "unverified"
+            missing.Value("reason") = "No declarative Window/View root was found; imperative UI construction is not statically analysed"
+            context.Coverage.Add(missing)
+        End If
+        Dim ids As JSONItem = JSONItem.NewArray()
+        For Each rule As GuiLintRule In Me.mRules
+            context.DeclaredRuleIds = rule.RuleIds()
+            For Each id As String In rule.RuleIds()
+                ids.Add(id)
+            Next
+            rule.Check(context)
+        Next
+        Dim report As JSONItem = JSONItem.NewObject()
+        report.Value("schema") = 1
+        report.Value("complete") = True
+        report.Value("path") = sourcePath
+        report.Value("version") = document.Version
+        report.Value("platform") = platform
+        report.Value("rules") = ids
+        report.Value("diagnostics") = context.Findings
+        report.Value("suppressed") = context.Suppressed
+        report.Value("unverified") = context.Coverage
+        report.Value("compilerChecked") = False
+        Return report
+    End Function
+End Class

@@ -1,0 +1,84 @@
+Import guilintkit.RuleContext
+Import layoutkit.LayoutDocument
+
+Private Function BamaRaw(node As LayoutNode, name As String) As String
+    For Each item As LayoutProperty In node.Properties
+        If String.Compare(item.Name, name, False) = 0 Then Return item.RawValue
+    Next
+    Return ""
+End Function
+
+Private Function BamaText(raw As String) As Optional Of String
+    If raw = "" Then Return Some("")
+    Dim parsed As Optional Of JSONItem = Json.TryParse(raw)
+    If Not parsed.HasValue Then Return None
+    If Not parsed.Value.IsString() Then Return None
+    Return Some(parsed.Value.AsString().Value)
+End Function
+
+Private Function BamaGridValue(value As Integer) As Boolean
+    If value >= 0 And value <= 2 Then Return True
+    Return value Mod 4 = 0
+End Function
+
+Private Function BamaWords(value As String) As String
+    value = String.Replace(value, "...", "", True)
+    value = String.Replace(value, "…", "", True)
+    value = String.Replace(value, "&", "", True)
+    Return String.LCase(String.Trim(value))
+End Function
+
+''' Optional BAMA conventions, not Apple requirements or native intrinsic sizes.
+''' Source policy is pinned in research/bama-guidelines.json.
+Public Class GuiBamaRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["BAMA001", "BAMA002", "BAMA003"]
+    End Function
+
+    Public Sub Check(c As GuiLintContext)
+        If c.Platform <> "macos" Or Not c.Profile.Value("bama").AsBoolean().Or(False) Then Exit Sub
+        For Each node As LayoutNode In c.Document.Nodes
+            If c.Hidden(node) Then Continue For
+            If String.Compare(BamaRaw(node, "AccessibleHidden"), "True", False) = 0 Then Continue For
+            ' Grid only authored positions. Native control dimensions and root
+            ' placement are deliberately excluded from this adaptation.
+            If node.ParentId <> "" And c.Literal(node) Then
+                Dim parent As LayoutNode = c.Document.FindNode(node.ParentId)
+                If parent.ParentId = "" Or String.Compare(parent.TypeName, "View", False) = 0 Then
+                    If Not BamaGridValue(node.X) Or Not BamaGridValue(node.Y) Then
+                        c.Emit("BAMA001", node, "info", "Authored position is off the opted-in BAMA four-point grid.", "BAMA layout-grid convention, commit f0c2cdb; 0, 1 and 2 are exceptions; native sizes are not checked")
+                    End If
+                End If
+            End If
+
+            Dim font As String = BamaRaw(node, "FontSize")
+            If font <> "" Then
+                Dim parsed As Result Of Double, String = Double.Parse(font)
+                If parsed.IsOk Then
+                    If parsed.Value > 0 And parsed.Value < 10 Then
+                        c.Emit("BAMA002", node, "info", "Explicit font size is below the opted-in BAMA ten-point recommendation.", "BAMA accessibility guidance, commit f0c2cdb; not a universal Apple minimum; zero uses the platform default")
+                    End If
+                Else
+                    c.Unverified("BAMA002", node, "FontSize is an expression; rendered text size is not known")
+                End If
+            End If
+
+            Dim explicitName As String = BamaRaw(node, "AccessibleLabel")
+            If explicitName = "" Then Continue For
+            Dim visible As Optional Of String = BamaText(BamaRaw(node, "Caption"))
+            If String.Compare(node.TypeName, "Label", False) = 0 Then visible = BamaText(BamaRaw(node, "Text"))
+            Dim accessible As Optional Of String = BamaText(explicitName)
+            If Not visible.HasValue Or Not accessible.HasValue Then
+                c.Unverified("BAMA003", node, "Visible or accessible name depends on an expression")
+                Continue For
+            End If
+            Dim words As String = BamaWords(visible.Value)
+            Dim labelWords As String = BamaWords(accessible.Value)
+            If String.Len(words) < 2 Or words = "..." Then Continue For
+            If labelWords = "" Then Continue For ' Missing names belong to GUI301.
+            If Not String.Contains(labelWords, words, True) Then
+                c.Emit("BAMA003", node, "info", "Explicit accessible label does not retain the visible wording; review Voice Control and screen-reader consistency.", "BAMA accessibility guidance, commit f0c2cdb; literal-name heuristic; expanded labels retaining visible words are allowed")
+            End If
+        Next
+    End Sub
+End Class

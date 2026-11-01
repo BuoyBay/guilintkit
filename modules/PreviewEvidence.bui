@@ -1,0 +1,131 @@
+Import layoutkit.LayoutDocument
+
+Private Sub PE_Need(value As Boolean, message As String)
+    If Not value Then Throw New InvalidArgumentException("GUI preview evidence: " + message)
+End Sub
+
+Private Sub PE_String(item As JSONItem, key As String)
+    If item.HasKey(key) Then PE_Need(item.Value(key).IsString(), key + " must be a string")
+End Sub
+
+Private Sub PE_Boolean(item As JSONItem, key As String)
+    If item.HasKey(key) Then PE_Need(item.Value(key).IsBoolean(), key + " must be boolean")
+End Sub
+
+Private Sub PE_Number(item As JSONItem, key As String)
+    If Not item.HasKey(key) Then Exit Sub
+    PE_Need(item.Value(key).IsNumber(), key + " must be numeric")
+    Dim value As Double = item.Value(key).AsNumber().Value
+    PE_Need(value >= -1.7976931348623157e308 And value <= 1.7976931348623157e308, key + " must be finite")
+End Sub
+
+Private Sub PE_AX(tree As JSONItem, depth As Integer)
+    PE_Need(depth <= 64, "native accessibility tree exceeds 64 levels")
+    PE_Need(tree.IsObject(), "native accessibility nodes must be objects")
+    For Each key As String In ["AXRole", "AXTitle"]
+        If tree.HasKey(key) And Not tree.Value(key).IsNull() Then PE_String(tree, key)
+    Next
+    PE_Boolean(tree, "truncated")
+    If Not tree.HasKey("children") Then Exit Sub
+    Dim children As JSONItem = tree.Value("children")
+    PE_Need(children.IsArray(), "native accessibility children must be an array")
+    For i As Integer = 0 To children.Count() - 1
+        PE_AX(children.ValueAt(i), depth + 1)
+    Next
+End Sub
+
+''' Validate format/identity before a rule consumes observations. This does not
+''' authenticate the producer, verify dependency freshness, or prove probe effects.
+Public Sub ValidateGuiPreview(preview As JSONItem, document As LayoutDocument)
+    PE_Need(preview.IsObject(), "report must be an object")
+    PE_Need(preview.Value("schema").IsNumber(), "schema must be 1")
+    PE_Need(preview.Value("schema").AsNumber().Value = 1.0, "unsupported schema version")
+    PE_Need(preview.Value("backend").IsString(), "backend must be a string")
+    PE_Need(Array.Contains(["macos", "windows", "linux"], preview.Value("backend").AsString().Value), "unknown backend")
+    PE_Need(preview.Value("status").IsString(), "status must be a string")
+    Dim source As JSONItem = preview.Value("source")
+    PE_Need(source.IsObject(), "source must be an object")
+    PE_Need(source.Value("root").IsString(), "source.root must be a string")
+    PE_Need(source.Value("layout").IsString(), "source.layout must be a string")
+    Dim filename As String = source.Value("layout").AsString().Value
+    PE_Need(String.Trim(filename) <> "", "source.layout must not be empty")
+    Dim found As Boolean = False
+    For Each node As LayoutNode In document.Nodes
+        If node.ParentId = "" And String.Compare(node.Name, source.Value("root").AsString().Value, False) = 0 Then found = True
+    Next
+    PE_Need(found, "source.root is not a declarative root in the inspected document")
+    PE_Need(preview.Value("inputs").IsObject(), "inputs must be an object")
+    PE_Need(preview.Value("inputs").Value(filename).IsString(), "inspected layout hash is missing")
+    Dim layout As JSONItem = preview.Value("layout")
+    PE_Need(layout.IsObject(), "layout must be an object")
+    For Each key As String In ["width", "height", "scale"]
+        PE_Number(layout, key)
+    Next
+    Dim controls As JSONItem = layout.Value("controls")
+    PE_Need(controls.IsArray(), "layout.controls must be an array")
+    For i As Integer = 0 To controls.Count() - 1
+        Dim item As JSONItem = controls.ValueAt(i)
+        PE_Need(item.IsObject(), "control observations must be objects")
+        PE_Need(item.Value("member").IsString(), "control member must be a string")
+        PE_Need(String.Trim(item.Value("member").AsString().Value) <> "", "control member must not be empty")
+        For Each key As String In ["visible", "enabled", "focusable", "accessibleHidden"]
+            PE_Boolean(item, key)
+        Next
+        For Each key As String In ["accessibleLabel", "accessibleHint", "coordinateSpace"]
+            PE_String(item, key)
+        Next
+        For Each key As String In ["x", "y", "width", "height", "accessibleRole"]
+            PE_Number(item, key)
+        Next
+        If item.HasKey("splitter") Then
+            Dim split As JSONItem = item.Value("splitter")
+            PE_Need(split.IsObject(), "splitter observation must be an object")
+            PE_Need(split.Value("paneCount").IsNumber(), "paneCount must be numeric")
+            Dim count As Double = split.Value("paneCount").AsNumber().Value
+            PE_Need(count >= 0 And count = Math.Floor(count), "paneCount must be a nonnegative integer")
+            Dim panes As JSONItem = split.Value("panes")
+            PE_Need(panes.IsArray(), "splitter panes must be an array")
+            PE_Need(count = panes.Count(), "paneCount differs from observed panes")
+            For p As Integer = 0 To panes.Count() - 1
+                Dim pane As JSONItem = panes.ValueAt(p)
+                PE_Need(pane.IsObject(), "pane observations must be objects")
+                For Each key As String In ["size", "minimum", "maximum"]
+                    PE_Need(pane.HasKey(key), "pane observation is missing " + key)
+                    PE_Number(pane, key)
+                Next
+                PE_Need(pane.Value("collapsed").IsBoolean(), "pane collapsed must be boolean")
+            Next
+        End If
+    Next
+    If layout.HasKey("menus") Then
+        Dim menus As JSONItem = layout.Value("menus")
+        PE_Need(menus.IsObject(), "layout.menus must be an object")
+        PE_Need(menus.HasKey("attached"), "menu attachment observation is missing")
+        PE_Need(menus.Value("attached").IsNull() Or menus.Value("attached").IsBoolean(), "menus.attached must be boolean or null")
+        PE_Need(menus.Value("items").IsArray(), "menus.items must be an array")
+        Dim items As JSONItem = menus.Value("items")
+        For i As Integer = 0 To items.Count() - 1
+            Dim item As JSONItem = items.ValueAt(i)
+            PE_Need(item.IsObject(), "menu items must be objects")
+            PE_Need(item.Value("tag").IsString(), "menu tag must be a string")
+            For Each key As String In ["caption", "menu", "shortcut"]
+                PE_String(item, key)
+            Next
+            PE_Boolean(item, "enabled")
+        Next
+    End If
+    If preview.HasKey("interactions") Then
+        Dim interactions As JSONItem = preview.Value("interactions")
+        PE_Need(interactions.IsArray(), "interactions must be an array")
+        For i As Integer = 0 To interactions.Count() - 1
+            Dim item As JSONItem = interactions.ValueAt(i)
+            PE_Need(item.IsObject(), "interaction observations must be objects")
+            PE_Need(Array.Contains(["passed", "failed", "unverified"], item.Value("status").AsString().Or("")), "interaction status must be passed, failed or unverified")
+            For Each key As String In ["key", "command", "kind", "member", "mode", "root", "platform"]
+                PE_String(item, key)
+            Next
+            If item.HasKey("platform") Then PE_Need(Array.Contains(["macos", "windows", "linux"], item.Value("platform").AsString().Value), "unknown interaction platform")
+        Next
+    End If
+    If preview.HasKey("nativeAccessibility") And Not preview.Value("nativeAccessibility").IsNull() Then PE_AX(preview.Value("nativeAccessibility"), 0)
+End Sub

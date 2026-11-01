@@ -1,0 +1,233 @@
+{
+  "schema": 1,
+  "platform": "windows",
+  "reviewedAt": "2026-10-31",
+  "scope": "Native Win32 Buoy desktop controls; WinUI-specific implementation APIs are not assumed",
+  "sourceCaveat": "The Win32 UX Guide explicitly describes Windows 7-era guidance. Treat its pixel tables as font/DPI-qualified recommendations, not current universal widget metrics.",
+  "rules": [
+    {
+      "id": "WIN001",
+      "title": "Fixed UI colors need a contrast-theme review",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/vis-color",
+      "sourceTitle": "Color — Win32 apps",
+      "recommendation": "Prefer semantic system/theme colors, preserve foreground/background pairs, and test contrast themes when fixed colors are necessary.",
+      "evidenceLevel": [
+        "source",
+        "native",
+        "manual"
+      ],
+      "automaticStatus": "current",
+      "exceptions": [
+        "Data colors",
+        "A documented contrast-theme override",
+        "Custom visualization reviewed across themes"
+      ],
+      "implementation": "implemented-advisory"
+    },
+    {
+      "id": "WIN002",
+      "title": "Noninteractive labels should not add tab stops",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard",
+      "sourceTitle": "Keyboard — Win32 apps",
+      "recommendation": "Keep keyboard traversal on interactive controls and meaningful groups; static labels normally stay out of the Tab sequence.",
+      "evidenceLevel": [
+        "source",
+        "interaction"
+      ],
+      "automaticStatus": "current",
+      "exceptions": [
+        "A deliberately interactive custom presentation",
+        "A separately verified keyboard interaction"
+      ],
+      "implementation": "implemented-advisory"
+    },
+    {
+      "id": "WIN003",
+      "title": "Review Command modifiers in Windows menus",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard",
+      "sourceTitle": "Keyboard — Win32 apps",
+      "recommendation": "Use Windows command conventions; a menu shortcut observed with Cmd or Command warrants platform-mapping review.",
+      "evidenceLevel": [
+        "native",
+        "interaction"
+      ],
+      "automaticStatus": "current",
+      "exceptions": [
+        "A toolkit explicitly translates the modifier; dispatch must still be tested"
+      ],
+      "implementation": "implemented-advisory"
+    },
+    {
+      "id": "WIN-CANDIDATE-NAME-ASSOCIATION",
+      "title": "Verify the native accessible name and label association",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/winauto/providing-the-name-property",
+      "sourceTitle": "Providing the Name Property",
+      "recommendation": "Inspect the accessibility provider's actual name. Native MSAA may obtain a control name from the preceding static label in tab order.",
+      "evidenceLevel": [
+        "native",
+        "interaction"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Explicit AccessibleLabel overrides",
+        "Provider-specific association behaviour"
+      ],
+      "falsePositiveRisk": "Visual proximity, source ordering, and the Buoy property getter alone do not prove the native provider's label relationship.",
+      "implementation": "candidate-UIA-or-MSAA-observation"
+    },
+    {
+      "id": "WIN-CANDIDATE-GRAPHIC-BUTTON-NAME",
+      "title": "Name graphical command buttons",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/ctrl-command-buttons",
+      "sourceTitle": "Command Buttons in Windows 7",
+      "recommendation": "A graphical button needs an action-oriented text name exposed to assistive technology; an ellipsis browse button should announce its action.",
+      "evidenceLevel": [
+        "source",
+        "native"
+      ],
+      "automaticStatus": "current",
+      "exceptions": [
+        "A meaningful natural caption already supplies the name"
+      ],
+      "implementation": "covered-by-GUI301-and-GUI302"
+    },
+    {
+      "id": "WIN-CANDIDATE-KEYBOARD-TRAVERSAL",
+      "title": "Verify Tab, Shift+Tab and grouped navigation",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard",
+      "sourceTitle": "Keyboard — Win32 apps",
+      "recommendation": "Test a logical traversal sequence, reverse traversal, group arrow navigation and escape from groups. Confirm visible focus.",
+      "evidenceLevel": [
+        "interaction"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Radio groups use one tab stop and internal arrow navigation",
+        "Alternate equivalent keyboard paths"
+      ],
+      "implementation": "candidate-focus-sequence-probe"
+    },
+    {
+      "id": "WIN-CANDIDATE-DIALOG-KEYS",
+      "title": "Verify Enter, Space and Escape effects",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard",
+      "sourceTitle": "Keyboard — Win32 apps",
+      "recommendation": "Exercise Enter on the current default action, Space on the focused control and Escape on cancel/close. Focus can change the effective default button.",
+      "evidenceLevel": [
+        "interaction"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Multiline editing",
+        "A deliberate safe-action policy",
+        "Transient popup dismissal before window cancellation"
+      ],
+      "implementation": "policy-and-evidence-framework-GUI501-GUI503-GUI701"
+    },
+    {
+      "id": "WIN-CANDIDATE-EDIT-COMMANDS",
+      "title": "Check standard command shortcuts by their effects",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard",
+      "sourceTitle": "Keyboard — Win32 apps",
+      "recommendation": "Confirm customary editing shortcuts act on the focused applicable control, rather than merely displaying a shortcut in a menu.",
+      "evidenceLevel": [
+        "interaction"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Read-only or inapplicable commands should be unavailable",
+        "Application-specific commands must not repurpose established shortcuts"
+      ],
+      "implementation": "policy-and-evidence-framework-GUI702"
+    },
+    {
+      "id": "WIN-CANDIDATE-DLU-METRICS",
+      "title": "Apply dialog-unit guidance only with matching metrics",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/vis-layout",
+      "sourceTitle": "Layout — Win32 apps",
+      "recommendation": "Classic tables assume 9pt Segoe UI at 96 DPI: dialog margins 7 DLU, related-control spacing 4 DLU, single-line edit height 14 DLU. Convert with actual dialog font metrics.",
+      "evidenceLevel": [
+        "native"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Different font",
+        "Different DPI",
+        "Touch layout",
+        "Custom control metrics"
+      ],
+      "falsePositiveRisk": "DLUs, relative pixels, physical pixels and Buoy layout units are not interchangeable.",
+      "implementation": "profile-candidate-not-universal-default"
+    },
+    {
+      "id": "WIN-CANDIDATE-CLIPPING-LOCALIZATION",
+      "title": "Avoid clipping meaningful content",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/uxguide/vis-layout",
+      "sourceTitle": "Layout — Win32 apps",
+      "recommendation": "Size controls for expected content and localization. Review initial surfaces that need immediate resizing, truncated essential text or unnecessary scrolling.",
+      "evidenceLevel": [
+        "native",
+        "manual"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Unusually long data",
+        "Intentional ellipsis with an accessible full value",
+        "User-selected compact modes"
+      ],
+      "implementation": "candidate-text-metrics-and-fixture-matrix"
+    },
+    {
+      "id": "WIN-CANDIDATE-DPI-TRANSITIONS",
+      "title": "Test DPI transitions, not just initial scaling",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows",
+      "sourceTitle": "High DPI Desktop Application Development on Windows",
+      "recommendation": "Test startup and transitions between differently scaled monitors, docking and display-scale changes. Win32 framework support must be verified rather than assumed.",
+      "evidenceLevel": [
+        "native",
+        "interaction"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "A documented fixed-DPI deployment environment"
+      ],
+      "falsePositiveRisk": "A single successful 96-DPI PNG does not establish DPI awareness or transition behaviour.",
+      "implementation": "candidate-multiple-environment-probe"
+    },
+    {
+      "id": "WIN-CANDIDATE-TEXT-SCALE-CONTRAST",
+      "title": "Exercise text scaling and default-theme contrast",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/apps/design/accessibility/accessible-text-requirements",
+      "sourceTitle": "Accessible text requirements",
+      "recommendation": "Verify readable text at user text-size settings and sufficient default foreground/background contrast. Do not rely on contrast themes as the only readability mitigation.",
+      "evidenceLevel": [
+        "native",
+        "manual"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Inactive or incidental text",
+        "Logos"
+      ],
+      "implementationCaveat": "WinUI automatic text-scaling APIs do not imply equivalent behaviour for Buoy's Win32 controls.",
+      "implementation": "candidate-rendered-color-and-text-probe"
+    },
+    {
+      "id": "WIN-CANDIDATE-THEME-CHANGES",
+      "title": "Keep custom controls responsive to theme changes",
+      "officialSourceURL": "https://learn.microsoft.com/en-us/windows/win32/w8cookbook/high-contrast-mode",
+      "sourceTitle": "High-contrast mode",
+      "recommendation": "Custom or owner-drawn UI must preserve user-selected contrast colors and refresh cached colors when the theme changes.",
+      "evidenceLevel": [
+        "native",
+        "interaction"
+      ],
+      "automaticStatus": "candidate",
+      "exceptions": [
+        "Standard controls whose verified framework handles updates",
+        "Non-UI data colors"
+      ],
+      "implementation": "candidate-theme-transition-probe"
+    }
+  ]
+}

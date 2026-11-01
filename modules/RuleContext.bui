@@ -1,0 +1,171 @@
+Import layoutkit.LayoutDocument
+Import editorkit
+
+''' Extensions register compiled rules; linting never executes opened project code.
+Public Interface GuiLintRule
+    Function RuleIds() As Array Of String
+    Sub Check(context As GuiLintContext)
+End Interface
+
+Private Function RCMember(node As LayoutNode, name As String) As String
+    For Each item As LayoutProperty In node.Properties
+        If String.Compare(item.Name, name, False) = 0 Then Return item.RawValue
+    Next
+    Return ""
+End Function
+
+Public Class GuiLintContext
+    Public Property Document As LayoutDocument
+    Public Property Path As String
+    Public Property Platform As String
+    Public Property Profile As JSONItem
+    Public Property Preview As JSONItem
+    Public Property Findings As JSONItem = JSONItem.NewArray()
+    Public Property Suppressed As JSONItem = JSONItem.NewArray()
+    Public Property Coverage As JSONItem = JSONItem.NewArray()
+    Public Property DeclaredRuleIds As Array Of String = []
+    Private Property mEditor As EditorDocument
+
+    Public Sub Constructor(document As LayoutDocument, sourcePath As String, platform As String, profile As JSONItem, preview As JSONItem)
+        Me.Document = document
+        Me.Path = sourcePath
+        Me.Platform = platform
+        Me.Profile = profile
+        Me.Preview = preview
+        Me.mEditor = New EditorDocument(document.SourceText)
+    End Sub
+
+    Public Function ControlPath(node As LayoutNode) As String
+        Dim outcome As String = node.Name
+        While node.ParentId <> ""
+            node = Me.Document.FindNode(node.ParentId)
+            outcome = node.Name + "." + outcome
+        End While
+        Return outcome
+    End Function
+
+    Public Function MemberMatches(node As LayoutNode, member As String) As Boolean
+        Dim root As LayoutNode = node
+        While root.ParentId <> ""
+            root = Me.Document.FindNode(root.ParentId)
+        End While
+        If String.Compare(member, node.Name, False) = 0 Then
+            Dim count As Integer = 0
+            For Each candidate As LayoutNode In Me.Document.Nodes
+                If String.Compare(candidate.Name, node.Name, False) <> 0 Then Continue For
+                Dim candidateRoot As LayoutNode = candidate
+                While candidateRoot.ParentId <> ""
+                    candidateRoot = Me.Document.FindNode(candidateRoot.ParentId)
+                End While
+                If candidateRoot.Id = root.Id Then count += 1
+            Next
+            Return count = 1
+        End If
+        Dim memberPath As String = Me.ControlPath(node)
+        If String.Compare(member, memberPath, False) = 0 Then Return True
+        If node.ParentId = "" Then Return False
+        Return String.Compare(member, String.Substring(memberPath, String.Len(root.Name) + 1), False) = 0
+    End Function
+
+    Public Function RuntimeControl(node As LayoutNode) As JSONItem
+        If Me.Preview = Nil Then Return Nil
+        Dim root As LayoutNode = node
+        While root.ParentId <> ""
+            root = Me.Document.FindNode(root.ParentId)
+        End While
+        If String.Compare(Me.Preview.Value("source").Value("root").AsString().Or(""), root.Name, False) <> 0 Then Return Nil
+        Dim controls As JSONItem = Me.Preview.Value("layout").Value("controls")
+        Dim matched As JSONItem = Nil
+        For i As Integer = 0 To controls.Count() - 1
+            Dim item As JSONItem = controls.ValueAt(i)
+            If Not Me.MemberMatches(node, item.Value("member").AsString().Or("")) Then Continue For
+            If matched <> Nil Then Return Nil
+            matched = item
+        Next
+        Return matched
+    End Function
+
+    Public Function Hidden(node As LayoutNode) As Boolean
+        While node <> Nil
+            If String.Compare(RCMember(node, "Visible"), "False", False) = 0 Then Return True
+            If node.ParentId = "" Then Exit While
+            node = Me.Document.FindNode(node.ParentId)
+        End While
+        Return False
+    End Function
+
+    Public Function Literal(node As LayoutNode) As Boolean
+        Return node.HasLiteralFrame And node.Editable And Not Me.Hidden(node)
+    End Function
+
+    Public Sub Unverified(rule As String, node As LayoutNode, reason As String)
+        Me.ValidateRule(rule)
+        If Me.Disabled(rule) Then Exit Sub
+        Dim item As JSONItem = Me.Location(rule, node)
+        item.Value("status") = "unverified"
+        item.Value("reason") = reason
+        Dim waiver As String = Me.IgnoreReason(rule, node)
+        If waiver <> "" Then
+            item.Value("status") = "waived"
+            item.Value("unverifiedReason") = reason
+            item.Value("reason") = waiver
+            Me.Suppressed.Add(item)
+            Exit Sub
+        End If
+        Me.Coverage.Add(item)
+    End Sub
+
+    Private Function IgnoreReason(rule As String, node As LayoutNode) As String
+        Dim ignores As JSONItem = Me.Profile.Value("ignore")
+        For i As Integer = 0 To ignores.Count() - 1
+            Dim ignore As JSONItem = ignores.ValueAt(i)
+            If ignore.Value("rule").AsString().Or("") = rule And ignore.Value("control").AsString().Or("") = Me.ControlPath(node) Then Return ignore.Value("reason").AsString().Or("")
+        Next
+        Return ""
+    End Function
+
+    Private Function Location(rule As String, node As LayoutNode) As JSONItem
+        Dim item As JSONItem = JSONItem.NewObject()
+        item.Value("rule") = rule
+        item.Value("path") = Me.Path
+        item.Value("control") = Me.ControlPath(node)
+        item.Value("platform") = Me.Platform
+        Dim offset As Integer = Me.Document.DeclarationStartByte(node.Id)
+        Dim position As EditorPosition = Me.mEditor.ByteToPosition(offset)
+        item.Value("startByte") = offset
+        item.Value("line") = position.Line + 1
+        item.Value("column") = position.Character + 1
+        item.Value("columnEncoding") = "utf-16"
+        Return item
+    End Function
+
+    Public Function Disabled(rule As String) As Boolean
+        Dim disabled As JSONItem = Me.Profile.Value("disabledRules")
+        For i As Integer = 0 To disabled.Count() - 1
+            If disabled.ValueAt(i).AsString().Or("") = rule Then Return True
+        Next
+        Return False
+    End Function
+
+    Public Sub Emit(rule As String, node As LayoutNode, severity As String, message As String, basis As String)
+        Me.ValidateRule(rule)
+        If severity <> "info" And severity <> "warning" And severity <> "error" Then Throw New InvalidArgumentException("Unknown GUI severity: " + severity)
+        If Me.Disabled(rule) Then Exit Sub
+        Dim finding As JSONItem = Me.Location(rule, node)
+        finding.Value("severity") = severity
+        finding.Value("message") = message
+        finding.Value("basis") = basis
+        Dim waiver As String = Me.IgnoreReason(rule, node)
+        If waiver <> "" Then
+            finding.Value("reason") = waiver
+            Me.Suppressed.Add(finding)
+            Exit Sub
+        End If
+        Me.Findings.Add(finding)
+    End Sub
+
+    Private Sub ValidateRule(rule As String)
+        If Array.Count(Me.DeclaredRuleIds) > 0 And Not Array.Contains(Me.DeclaredRuleIds, rule) Then Throw New InvalidArgumentException("GUI collection emitted an undeclared rule: " + rule)
+    End Sub
+End Class
+

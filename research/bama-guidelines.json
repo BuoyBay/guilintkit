@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "name": "BAMA adaptation candidates",
+  "repository": "https://github.com/daveebbelaar/bama",
+  "commit": "f0c2cdbf9e41d838c14d8b7596729581dd4833c0",
+  "reviewedAt": "2026-10-31",
+  "authority": "Third-party macOS SwiftUI project conventions. These are not Apple requirements or Buoy native preferred sizes.",
+  "activation": {
+    "profile": {
+      "bama": true
+    },
+    "platform": "macos",
+    "default": false,
+    "severity": "info"
+  },
+  "sources": {
+    "grid": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/layout-grid/SKILL.md",
+    "accessibility": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md",
+    "mac_design": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/mac-design/SKILL.md"
+  },
+  "implemented": [
+    {
+      "id": "BAMA001",
+      "summary": "Review off-grid authored positions under an explicitly adopted four-point policy.",
+      "evidence": "Safe literal frames in supported parent coordinate spaces.",
+      "exemptions": [
+        "Root desktop placement",
+        "Native control dimensions",
+        "Positions 0, 1 and 2",
+        "Computed or constrained geometry",
+        "Hidden controls",
+        "Documented per-control suppression"
+      ],
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/layout-grid/SKILL.md",
+      "adaptation": "Checks positions only; Buoy cannot adopt SwiftUI controlSize or intrinsic-layout advice by forcing fixed heights."
+    },
+    {
+      "id": "BAMA002",
+      "summary": "Review explicitly fixed text smaller than ten points.",
+      "evidence": "A positive numeric FontSize literal.",
+      "exemptions": [
+        "Zero uses the platform font default",
+        "Expressions remain unverified",
+        "Hidden/decorative controls",
+        "Documented per-control suppression"
+      ],
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md",
+      "adaptation": "Advisory BAMA recommendation, not a universal minimum."
+    },
+    {
+      "id": "BAMA003",
+      "summary": "Review conflicting visible and explicit accessible wording.",
+      "evidence": "Literal Caption or Label.Text and literal AccessibleLabel.",
+      "exemptions": [
+        "Icon-only captions",
+        "Expanded labels retaining visible words",
+        "Mnemonic markers and trailing ellipsis",
+        "Expressions remain unverified",
+        "Documented per-control suppression"
+      ],
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md",
+      "adaptation": "A wording heuristic; localization and intentional spoken alternatives may justify differences."
+    }
+  ],
+  "alreadyCovered": [
+    {
+      "topic": "Default/Cancel keyboard behavior",
+      "rules": [
+        "GUI501",
+        "GUI503",
+        "GUI701"
+      ],
+      "evidence": "Declared intent plus native interaction outcomes.",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md"
+    },
+    {
+      "topic": "Menu command availability",
+      "rules": [
+        "GUI601",
+        "GUI602",
+        "GUI702"
+      ],
+      "evidence": "Native menu observations and command outcomes.",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/mac-design/SKILL.md"
+    },
+    {
+      "topic": "Meaningful icon names and help",
+      "rules": [
+        "GUI301",
+        "GUI302",
+        "GUI305"
+      ],
+      "evidence": "Source/runtime names; tooltip attachment needs native evidence.",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md"
+    },
+    {
+      "topic": "Relational spacing and containment",
+      "rules": [
+        "GUI002",
+        "GUI102",
+        "GUI103",
+        "GUI104",
+        "GUI105"
+      ],
+      "evidence": "Shared LayoutRelations measurements under project-supplied margins and spacing.",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/layout-grid/SKILL.md"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "BAMA-R01",
+      "topic": "Appearance and accessibility display modes",
+      "evidenceRequired": [
+        "Separate light/dark captures",
+        "Observed Increase Contrast, Reduce Motion, Reduce Transparency state",
+        "Fixture semantics"
+      ],
+      "status": "requires scenario evidence",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md"
+    },
+    {
+      "id": "BAMA-R02",
+      "topic": "Keyboard-only completion and reading-order focus",
+      "evidenceRequired": [
+        "Tab/arrow/Return/Escape/Space sequence",
+        "Focused element identity",
+        "Observable semantic outcome"
+      ],
+      "status": "requires interaction probes",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md"
+    },
+    {
+      "id": "BAMA-R03",
+      "topic": "Custom-control accessible value, actions and feedback",
+      "evidenceRequired": [
+        "Native accessibility value/actions",
+        "State transitions",
+        "Announcement observations"
+      ],
+      "status": "requires platform accessibility adapters",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/ux-design/accessibility.md"
+    },
+    {
+      "id": "BAMA-R04",
+      "topic": "Truncation with recoverable full text",
+      "evidenceRequired": [
+        "Measured rendered truncation",
+        "Full value",
+        "Native hover-help observation"
+      ],
+      "status": "requires runtime text measurement and help evidence",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/layout-grid/SKILL.md"
+    },
+    {
+      "id": "BAMA-R05",
+      "topic": "Text/background contrast across states",
+      "evidenceRequired": [
+        "Resolved colors and compositing",
+        "Font classification",
+        "Light/dark and hover/pressed states"
+      ],
+      "status": "requires measured colors; do not infer from color names",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/mac-design/SKILL.md"
+    },
+    {
+      "id": "BAMA-R06",
+      "topic": "Native preferred control size",
+      "evidenceRequired": [
+        "Platform intrinsic size at actual font/control size",
+        "Resolved runtime frame"
+      ],
+      "status": "requires intrinsic-size APIs; no universal 22/28pt enforcement",
+      "source": "https://github.com/daveebbelaar/bama/blob/f0c2cdbf9e41d838c14d8b7596729581dd4833c0/skills/design/mac-design/SKILL.md"
+    }
+  ]
+}

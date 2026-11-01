@@ -1,0 +1,112 @@
+Private Sub Need(value As Boolean, message As String)
+    If Not value Then Throw New InvalidArgumentException("GUI lint profile: " + message)
+End Sub
+
+Private Sub Strings(value As JSONItem, label As String)
+    Need(value.IsArray(), label + " must be an array")
+    Need(value.Count() <= 256, label + " exceeds 256 entries")
+    For i As Integer = 0 To value.Count() - 1
+        Need(value.ValueAt(i).IsString(), label + " requires strings")
+        Need(String.Trim(value.ValueAt(i).AsString().Value) <> "", label + " requires nonempty strings")
+    Next
+End Sub
+
+Private Sub Merge(target As JSONItem, patch As JSONItem, allowPlatforms As Boolean)
+    Need(patch.IsObject(), "expected an object")
+    For Each key As String In patch.Keys()
+        Dim value As JSONItem = patch.Value(key)
+        Select Case key
+        Case "schema"
+            Need(value.AsNumber().Or(0.0) = 1.0, "schema must be 1")
+        Case "textFieldMaxHeight", "alignmentTolerance", "snapTolerance", "centerTolerance"
+            Need(value.IsNumber(), key + " must be numeric")
+            Dim number As Double = value.AsNumber().Value
+            Need(number >= 0 And number <= 1000 And number = Math.Floor(number), key + " must be an integer from 0 to 1000")
+        Case "margins", "spacing"
+            Need(value.IsArray(), key + " must be an array")
+            Need(value.Count() <= 32, key + " exceeds 32 entries")
+            For i As Integer = 0 To value.Count() - 1
+                Dim distance As JSONItem = value.ValueAt(i)
+                Need(distance.IsNumber(), key + " must contain numbers")
+                Dim amount As Double = distance.AsNumber().Value
+                Need(amount >= 0 And amount <= 1000 And amount = Math.Floor(amount), key + " requires integers from 0 to 1000")
+            Next
+        Case "disabledRules"
+            Strings(value, key)
+        Case "bama"
+            Need(value.IsBoolean(), "bama must be boolean")
+        Case "ruleOptions"
+            Need(value.IsObject(), "ruleOptions must be an object keyed by registered rule ID")
+            Dim options As JSONItem = target.Value("ruleOptions")
+            If Not options.IsObject() Then options = JSONItem.NewObject()
+            For Each id As String In value.Keys()
+                Need(value.Value(id).IsObject(), "ruleOptions entries must be objects")
+                options.Value(id) = value.Value(id)
+            Next
+            target.Value(key) = options
+            Continue For
+        Case "ignore"
+            Need(value.IsArray(), "ignore must be an array")
+            For i As Integer = 0 To value.Count() - 1
+                Dim item As JSONItem = value.ValueAt(i)
+                Need(item.IsObject(), "ignore entry must be an object")
+                For Each part As String In item.Keys()
+                    Need(Array.Contains(["rule", "control", "reason"], part), "unknown ignore field: " + part)
+                Next
+                For Each part As String In ["rule", "control", "reason"]
+                    Need(item.Value(part).IsString(), "ignore requires " + part)
+                    Need(String.Trim(item.Value(part).AsString().Value) <> "", "ignore requires nonempty " + part)
+                Next
+            Next
+        Case "windows"
+            Need(value.IsObject(), "windows must be an object")
+            Dim windows As JSONItem = target.Value("windows")
+            If Not windows.IsObject() Then windows = JSONItem.NewObject()
+            For Each name As String In value.Keys()
+                Dim policy As JSONItem = value.Value(name)
+                Need(policy.IsObject(), "window policy must be an object")
+                Dim merged As JSONItem = windows.Value(name)
+                If Not merged.IsObject() Then merged = JSONItem.NewObject()
+                For Each field As String In policy.Keys()
+                    Dim optionValue As JSONItem = policy.Value(field)
+                    Select Case field
+                    Case "purpose"
+                        Need(Array.Contains(["dialog", "document", "utility"], optionValue.AsString().Or("")), "unknown window purpose")
+                    Case "resizable", "defaultButton", "cancelButton"
+                        Need(optionValue.IsBoolean(), field + " must be boolean")
+                    Case "menuCommands", "nativeMenuTitles"
+                        Strings(optionValue, field)
+                    Case Else
+                        Need(False, "unknown window policy field: " + field)
+                    End Select
+                    merged.Value(field) = optionValue
+                Next
+                windows.Value(name) = merged
+            Next
+            target.Value("windows") = windows
+            Continue For
+        Case "platforms"
+            Need(allowPlatforms And value.IsObject(), "platforms must be an object at the top level")
+            For Each name As String In value.Keys()
+                Need(Array.Contains(["macos", "windows", "linux"], name), "unknown platform: " + name)
+                Dim validated As JSONItem = JSONItem.NewObject()
+                Merge(validated, value.Value(name), False)
+            Next
+            Continue For
+        Case Else
+            Need(False, "unknown field: " + key)
+        End Select
+        target.Value(key) = value
+    Next
+End Sub
+
+Public Function ResolveGuiLintProfile(profile As JSONItem, platform As String) As JSONItem
+    Need(Array.Contains(["any", "macos", "windows", "linux"], platform), "platform must be any, macos, windows or linux")
+    Dim resolved As JSONItem = Json.Parse("{\"schema\":1,\"textFieldMaxHeight\":28,\"alignmentTolerance\":3,\"disabledRules\":[],\"ignore\":[],\"windows\":{}}")
+    ' Clone so merging platform overrides never mutates the caller's policy.
+    Dim cloned As JSONItem = Json.Parse(profile.ToString())
+    Merge(resolved, cloned, True)
+    Dim overrideValue As JSONItem = cloned.Value("platforms").Value(platform)
+    If overrideValue.IsObject() Then Merge(resolved, overrideValue, False)
+    Return resolved
+End Function

@@ -1,0 +1,163 @@
+Import guilintkit.RuleContext
+Import layoutkit.LayoutDocument
+
+Private Function SplitterSame(a As String, b As String) As Boolean
+    Return String.Compare(a, b, False) = 0
+End Function
+
+Private Function SplitterProperty(node As LayoutNode, name As String) As String
+    For Each prop As LayoutProperty In node.Properties
+        If SplitterSame(prop.Name, name) Then Return prop.RawValue
+    Next
+    Return ""
+End Function
+
+Private Function SplitterRoot(c As GuiLintContext, node As LayoutNode) As LayoutNode
+    While node.ParentId <> ""
+        node = c.Document.FindNode(node.ParentId)
+    End While
+    Return node
+End Function
+
+Private Function SplitterPreviewMatches(c As GuiLintContext, node As LayoutNode) As Boolean
+    If c.Preview = Nil Then Return False
+    Dim root As LayoutNode = SplitterRoot(c, node)
+    Return SplitterSame(c.Preview.Value("source").Value("root").AsString().Or(""), root.Name)
+End Function
+
+Private Function SplitterObservation(c As GuiLintContext, node As LayoutNode) As JSONItem
+    Dim observed As JSONItem = c.RuntimeControl(node)
+    If observed = Nil Then Return JSONItem.Null()
+    Return observed.Value("splitter")
+End Function
+
+Private Function SplitterFillCandidate(node As LayoutNode) As Boolean
+    For Each kind As String In ["View", "Canvas", "TextArea", "ListBox", "HTMLView", "TreeView", "ScrollView", "Splitter"]
+        If SplitterSame(node.TypeName, kind) Then Return True
+    Next
+    Return SplitterSame(node.TypeName, "TextField") And SplitterSame(SplitterProperty(node, "Multiline"), "True")
+End Function
+
+Private Function SplitterWithin(c As GuiLintContext, node As LayoutNode) As Boolean
+    While node.ParentId <> ""
+        node = c.Document.FindNode(node.ParentId)
+        If SplitterSame(node.TypeName, "Splitter") Then Return True
+    End While
+    Return False
+End Function
+
+''' Splitter direct children each belong to a different synthesized pane View.
+''' These rules never treat them as siblings sharing the splitter's frame.
+Public Class GuiSplitterRules Implements GuiLintRule
+    Public Function RuleIds() As Array Of String
+        Return ["GUI801", "GUI802", "GUI803", "GUI804"]
+    End Function
+
+    Private Sub CheckBinding(c As GuiLintContext, node As LayoutNode)
+        If Not SplitterFillCandidate(node) Or Not SplitterWithin(c, node) Or c.Hidden(node) Then Exit Sub
+        Dim root As LayoutNode = SplitterRoot(c, node)
+        Dim unresolved As Boolean = False
+        Dim constraints As JSONItem = JSONItem.NewArray()
+        Try
+            constraints = c.Document.Constraints(root.Id)
+        Catch e As InvalidArgumentException
+            unresolved = True
+        End Try
+        For i As Integer = 0 To constraints.Count() - 1
+            Dim constraint As JSONItem = constraints.ValueAt(i)
+            Dim leftId As String = constraint.Value("leftNodeId").AsString().Or("")
+            If leftId = "" Then unresolved = True
+            If leftId = node.Id And constraint.Value("rightNodeId").AsString().Or("") <> "" Then Exit Sub
+        Next
+        For Each name As String In ["LockRight", "LockBottom"]
+            Dim raw As String = SplitterProperty(node, name)
+            If SplitterSame(raw, "True") Then Exit Sub
+            If raw <> "" And Not SplitterSame(raw, "False") Then
+                c.Unverified("GUI802", node, "Pane resize binding depends on an expression")
+                Exit Sub
+            End If
+        Next
+        If Not node.HasLiteralFrame Or unresolved Then
+            c.Unverified("GUI802", node, "Computed geometry or unresolved constraints prevent proving pane resize binding")
+            Exit Sub
+        End If
+        c.Emit("GUI802", node, "info", "Pane content has a fixed frame with no visible right/bottom locks or relational constraints. Review whether it should follow pane resizing.", "layout heuristic for container/data controls; fixed-size content and code-behind bindings may be intentional")
+    End Sub
+
+    Private Sub CheckObservedLimits(c As GuiLintContext, node As LayoutNode, observed As JSONItem)
+        Dim panes As JSONItem = observed.Value("panes")
+        If Not panes.IsArray() Then
+            c.Unverified("GUI803", node, "Preview does not expose native pane limits")
+            Exit Sub
+        End If
+        For i As Integer = 0 To panes.Count() - 1
+            Dim pane As JSONItem = panes.ValueAt(i)
+            If Not pane.Value("minimum").IsNumber() Or Not pane.Value("maximum").IsNumber() Then
+                c.Unverified("GUI803", node, "Preview pane limits are incomplete")
+                Continue For
+            End If
+            Dim minimum As Double = pane.Value("minimum").AsNumber().Value
+            Dim maximum As Double = pane.Value("maximum").AsNumber().Value
+            If maximum > 0 And minimum > maximum Then
+                c.Emit("GUI803", node, "warning", "Pane " + String.From(i) + " minimum exceeds its maximum; Buoy gives the minimum precedence.", "source-matched native pane limits; zero maximum means unlimited")
+            End If
+            ' A collapsed pane may legitimately be smaller than its minimum.
+            ' Even expanded panes can exceed limits when all pane limits cannot
+            ' fit the splitter's total size. Do not infer a broken binding here.
+        Next
+    End Sub
+
+    Private Sub CheckInteractions(c As GuiLintContext, node As LayoutNode)
+        Dim verified As Boolean = False
+        Dim matched As JSONItem = Nil
+        Dim count As Integer = 0
+        If SplitterPreviewMatches(c, node) Then
+            Dim checks As JSONItem = c.Preview.Value("interactions")
+            For i As Integer = 0 To checks.Count() - 1
+                Dim item As JSONItem = checks.ValueAt(i)
+                If item.Value("kind").AsString().Or("") <> "splitter-resize" Then Continue For
+                If Not c.MemberMatches(node, item.Value("member").AsString().Or("")) Then Continue For
+                Dim root As LayoutNode = SplitterRoot(c, node)
+                If Not SplitterSame(item.Value("root").AsString().Or(root.Name), root.Name) Then Continue For
+                Dim checkPlatform As String = item.Value("platform").AsString().Or(c.Platform)
+                If checkPlatform <> c.Platform Then Continue For
+                count += 1
+                matched = item
+            Next
+        End If
+        If count = 1 Then
+            Dim status As String = matched.Value("status").AsString().Or("")
+            If status = "passed" Then verified = True
+            If status = "failed" Then
+                verified = True
+                c.Emit("GUI804", node, "warning", "Native splitter resize check failed for this control.", "source-matched splitter-resize interaction evidence; inspect the probe's expected and observed effects")
+            End If
+        End If
+        If Not verified Then c.Unverified("GUI804", node, "Initial frames do not prove pane resize connections; a splitter-resize interaction probe is required")
+    End Sub
+
+    Public Sub Check(c As GuiLintContext)
+        For Each node As LayoutNode In c.Document.Nodes
+            Me.CheckBinding(c, node)
+            If Not SplitterSame(node.TypeName, "Splitter") Or c.Hidden(node) Then Continue For
+            Dim declaredPanes As Integer = 0
+            For Each child As LayoutNode In c.Document.Nodes
+                If child.ParentId = node.Id Then declaredPanes += 1
+            Next
+            Dim observed As JSONItem = SplitterObservation(c, node)
+            Dim count As Double = declaredPanes
+            Dim basis As String = "declarative direct children; code-behind may add panes"
+            If observed.Value("paneCount").IsNumber() Then
+                count = observed.Value("paneCount").AsNumber().Value
+                basis = "source-matched native pane count"
+            End If
+            If count < 2 Then c.Emit("GUI801", node, "info", "Splitter has fewer than two observed or declared panes; review whether a divider is intended.", basis)
+            If observed.IsObject() Then
+                Me.CheckObservedLimits(c, node, observed)
+            Else
+                c.Unverified("GUI803", node, "No source-matched native pane-limit observation is available")
+            End If
+            Me.CheckInteractions(c, node)
+        Next
+    End Sub
+End Class
