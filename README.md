@@ -1,4 +1,4 @@
-# GUI layout linter, extensible rules
+# GUI layout linter
 
 A reusable, read-only native GUI linter, integrated into the existing **buoy-dev
 gui-lint** command. It uses LayoutKit's actual source model, shared relational
