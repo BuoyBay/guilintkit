@@ -2,5 +2,5 @@
   "schema": 1,
   "name": "guilintkit",
   "version": "0.1.0",
-  "description": "Extensible native GUI lint rules over LayoutKit snapshots and verified preview evidence"
+  "description": "GUI layout linter, extensible rules"
 }
