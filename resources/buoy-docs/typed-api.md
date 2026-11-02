@@ -73,8 +73,6 @@ No parameters.
 
 Returns: no value.
 
-## ControlKinds functions
-
 ### GuiInteractiveType
 
 `Public Function GuiInteractiveType(typeName As String) As Boolean`
@@ -110,8 +108,6 @@ Only defaults documented by Buoy's accessibility surface are asserted here.
 | Type |
 | --- |
 | `Optional Of Boolean` |
-
-## GUILintKit functions
 
 ### DefaultGuiLintProfile
 
@@ -350,8 +346,6 @@ No parameters.
 
 Returns: no value.
 
-## PreviewEvidence functions
-
 ### ValidateGuiPreview
 
 `Public Sub ValidateGuiPreview(preview As JSONItem, document As LayoutDocument)`
@@ -366,8 +360,6 @@ Validate format/identity before a rule consumes observations. This does not auth
 | `document` | `LayoutDocument` | `ByVal` | Required |
 
 Returns: no value.
-
-## Profiles functions
 
 ### ResolveGuiLintProfile
 

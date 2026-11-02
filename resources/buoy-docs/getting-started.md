@@ -13,7 +13,7 @@ Place `guilintkit`, `layoutkit`, `editorkit`, and `crypto` archives in the consu
 
 This complete example checks a declarative Window containing a tall TextField. The source is data; the Window is never constructed. The default-font height policy is advisory and can be disabled or changed by project policy. The report also retains checks that cannot be verified without stronger evidence.
 
-```buoy
+```basic
 Import guilintkit
 Import layoutkit.LayoutDocument
 

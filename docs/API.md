@@ -64,14 +64,7 @@ occlusion, font fitting or z-order, and does not diagnose unpainted backgrounds.
 
 ## Profiles and platform policy
 
-The example profile (not included in this repository) demonstrates window
-purpose, platform overrides, and style values. Its margins/spacing are **example
-project conventions**, not universal Windows/Linux/macOS recommended pixels.
-Microsoft's classic spacing tables use font/DPI-qualified dialog units; GTK,
-GNOME and KDE have different conventions. Native intrinsic sizes remain a
-different concept from an editor's insertion size or a documentation example.
-The default TextField ceiling of 28 comes from Buoy's documentation example and
-is explicitly advisory; set `textFieldMaxHeight: 0` to disable that suggestion.
+Profiles can define window purpose, platform overrides and project-specific margins/spacing. Such values are application conventions, not universal Windows/Linux/macOS recommended pixels. Microsoft's classic spacing tables use font/DPI-qualified dialog units, while GTK, GNOME and KDE have different conventions. Native intrinsic size is distinct from an editor's insertion size. The default TextField ceiling of 28 is advisory; set `textFieldMaxHeight: 0` to disable it.
 
 `platforms.macos`, `.windows` and `.linux` override common profile values.
 Window policy fields merge by declared root name. `purpose: "dialog"` requests
@@ -180,5 +173,3 @@ checks requiring stronger evidence:
   layout guidance and native accessible-name providers.
 - [GTK/GNOME/KDE](../research/linux-guidelines.json), kept distinct rather than
   presented as one Linux standard.
-
-Test suites and fixtures are maintainer-local and are not part of this public repository.

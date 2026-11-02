@@ -34,8 +34,6 @@ Invalid shared policy, unknown rule IDs in options/disables/suppressions, and in
 
 Profile resolution clones the caller's JSON before merging platform overrides. Each analysis creates fresh finding, suppression and coverage arrays. Built-in rules read the supplied layout document; analysis does not compile or rewrite its source. Registered extension objects are retained by the registry, and their context exposes the supplied document and preview directly: extensions must treat these as borrowed read-only inputs and manage their own mutable state. The linter does not isolate extension side effects or make extension failures transactional.
 
-The repository consumer recovery test, `tests/guilint_consumer_recovery_test.bui`, exercises an unknown-rule rejection followed by a successful analysis, platform override isolation, independent finding objects across reports, and preservation of document source using the geometry collection. This is a source-analysis contract test; it does not establish native GUI behavior.
-
 ## Extensions: `guilintkit.RuleContext`
 
 `GuiLintRule` declares `RuleIds() As Array Of String` and `Check(context As GuiLintContext)`. Compiled collections execute only after explicit host registration. Unique stable IDs allow settings and suppressions to remain meaningful.
@@ -52,6 +50,5 @@ Extensions can read their data-only settings from `profile.ruleOptions[ruleId]`;
 - [Getting started](getting-started.md)
 - [API reference](api.md)
 - [Rules and evidence](rules.md)
-
 
 [Full typed API: properties, parameters, defaults, and returns](typed-api.md)
